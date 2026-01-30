@@ -37,14 +37,16 @@ For each task:
 - Keep your responses concise but informative
 - If you need clarification, ask the user`;
 
-export const TOOL_DEFINITIONS = [
+import type { ToolDefinition } from '../types.js';
+
+export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function' as const,
     function: {
       name: 'list_files',
       description: 'List files and directories at the specified path. Returns an array of file/directory names.',
       parameters: {
-        type: 'object',
+        type: 'object' as const,
         properties: {
           path: {
             type: 'string',
@@ -61,7 +63,7 @@ export const TOOL_DEFINITIONS = [
       name: 'read_file',
       description: 'Read the complete contents of a file at the specified path.',
       parameters: {
-        type: 'object',
+        type: 'object' as const,
         properties: {
           path: {
             type: 'string',
@@ -78,7 +80,7 @@ export const TOOL_DEFINITIONS = [
       name: 'propose_file_change',
       description: 'Propose a change to a file by providing the complete new content. This creates a diff that the user must approve before the file is modified. Always provide the COMPLETE file content, not just the changes.',
       parameters: {
-        type: 'object',
+        type: 'object' as const,
         properties: {
           path: {
             type: 'string',
@@ -99,7 +101,7 @@ export const TOOL_DEFINITIONS = [
       name: 'run_command',
       description: 'Run a shell command in the workspace directory. Returns stdout, stderr, and exit code.',
       parameters: {
-        type: 'object',
+        type: 'object' as const,
         properties: {
           command: {
             type: 'string',

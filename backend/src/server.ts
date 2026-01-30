@@ -6,211 +6,279 @@ import { AgentLoop, UpdateCallback } from './agent/agentLoop.js';
 import { validateWorkspace, getWorkspaceInfo } from './workspace/workspace.js';
 import type { TaskRequest, AgentUpdate } from './types.js';
 
-const PORT = process.env.PORT || 3001;
-const API_KEY = process.env.MOONSHOT_API_KEY || '';
+export interface BackendServerOptions {
+  apiKey?: string;
+  corsOrigins?: string[];
+  agentLoopFactory?: (
+    apiKey: string,
+    workspacePath: string,
+    task: string,
+    onUpdate: UpdateCallback
+  ) => AgentLoop;
+  validateWorkspaceFn?: typeof validateWorkspace;
+  getWorkspaceInfoFn?: typeof getWorkspaceInfo;
+}
 
-const app = express();
-const httpServer = createServer(app);
-const io = new SocketIOServer(httpServer, {
-  cors: {
-    origin: ['http://localhost:3000', 'http://localhost:5173'],
-    methods: ['GET', 'POST'],
-  },
-});
+export interface BackendServerInstance {
+  app: express.Express;
+  httpServer: ReturnType<typeof createServer>;
+  io: SocketIOServer;
+  activeSessions: Map<string, AgentLoop>;
+  start: (port?: number) => Promise<{ port: number }>;
+  stop: () => Promise<void>;
+}
 
-app.use(cors());
-app.use(express.json());
+const DEFAULT_PORT = 3001;
+const DEFAULT_CORS_ORIGINS = ['http://localhost:3000', 'http://localhost:5173'];
 
-// Store active agent sessions
-const activeSessions = new Map<string, AgentLoop>();
+export function createBackendServer(
+  options: BackendServerOptions = {}
+): BackendServerInstance {
+  const apiKey = options.apiKey ?? process.env.MOONSHOT_API_KEY ?? '';
+  const corsOrigins = options.corsOrigins ?? DEFAULT_CORS_ORIGINS;
+  const makeAgent =
+    options.agentLoopFactory ??
+    ((key, workspacePath, task, onUpdate) =>
+      new AgentLoop(key, workspacePath, task, onUpdate));
+  const validateWorkspaceFn = options.validateWorkspaceFn ?? validateWorkspace;
+  const getWorkspaceInfoFn = options.getWorkspaceInfoFn ?? getWorkspaceInfo;
 
-// REST endpoints
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', hasApiKey: !!API_KEY });
-});
+  const app = express();
+  const httpServer = createServer(app);
+  const io = new SocketIOServer(httpServer, {
+    cors: {
+      origin: corsOrigins,
+      methods: ['GET', 'POST'],
+    },
+  });
 
-app.post('/api/workspace/validate', async (req, res) => {
-  const { path } = req.body;
-  if (!path) {
-    return res.status(400).json({ error: 'Path is required' });
-  }
+  app.use(cors());
+  app.use(express.json());
 
-  const isValid = await validateWorkspace(path);
-  if (!isValid) {
-    return res.status(400).json({ error: 'Invalid workspace path' });
-  }
+  const activeSessions = new Map<string, AgentLoop>();
 
-  const info = await getWorkspaceInfo(path);
-  res.json(info);
-});
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', hasApiKey: !!apiKey });
+  });
 
-app.get('/api/session/:sessionId/diffs', (req, res) => {
-  const { sessionId } = req.params;
-  const agent = activeSessions.get(sessionId);
-
-  if (!agent) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-
-  const diffs = agent.getPendingDiffs();
-  res.json(diffs);
-});
-
-// WebSocket connection handling
-io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-
-  let currentAgent: AgentLoop | null = null;
-  let sessionId: string | null = null;
-
-  // Create update callback for this socket
-  const onUpdate: UpdateCallback = (update: AgentUpdate) => {
-    socket.emit('agent:update', update);
-  };
-
-  // Start a new task
-  socket.on('task:start', async (data: TaskRequest) => {
-    if (!API_KEY) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: 'MOONSHOT_API_KEY environment variable not set' },
-      });
-      return;
+  app.post('/api/workspace/validate', async (req, res) => {
+    const { path } = req.body;
+    if (!path) {
+      return res.status(400).json({ error: 'Path is required' });
     }
 
-    const { task, workspacePath } = data;
-
-    if (!task || !workspacePath) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: 'Task and workspace path are required' },
-      });
-      return;
-    }
-
-    // Validate workspace
-    const isValid = await validateWorkspace(workspacePath);
+    const isValid = await validateWorkspaceFn(path);
     if (!isValid) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: 'Invalid workspace path' },
-      });
-      return;
+      return res.status(400).json({ error: 'Invalid workspace path' });
     }
 
-    // Stop existing agent if any
-    if (currentAgent) {
-      currentAgent.stop();
+    const info = await getWorkspaceInfoFn(path);
+    res.json(info);
+  });
+
+  app.get('/api/session/:sessionId/diffs', (req, res) => {
+    const { sessionId } = req.params;
+    const agent = activeSessions.get(sessionId);
+
+    if (!agent) {
+      return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Create new agent
-    currentAgent = new AgentLoop(API_KEY, workspacePath, task, onUpdate);
-    sessionId = currentAgent.getState().taskId;
-    activeSessions.set(sessionId, currentAgent);
+    const diffs = agent.getPendingDiffs();
+    res.json(diffs);
+  });
 
-    socket.emit('session:started', { sessionId });
+  io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
 
-    // Start the agent loop
-    try {
+    let currentAgent: AgentLoop | null = null;
+    let sessionId: string | null = null;
+
+    const onUpdate: UpdateCallback = (update: AgentUpdate) => {
+      socket.emit('agent:update', update);
+    };
+
+    socket.on('task:start', async (data: TaskRequest) => {
+      if (!apiKey) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'MOONSHOT_API_KEY environment variable not set' },
+        });
+        return;
+      }
+
+      const { task, workspacePath } = data;
+
+      if (!task || !workspacePath) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'Task and workspace path are required' },
+        });
+        return;
+      }
+
+      const isValid = await validateWorkspaceFn(workspacePath);
+      if (!isValid) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'Invalid workspace path' },
+        });
+        return;
+      }
+
+      if (currentAgent) {
+        currentAgent.stop();
+      }
+
+      currentAgent = makeAgent(apiKey, workspacePath, task, onUpdate);
+      sessionId = currentAgent.getState().taskId;
+      activeSessions.set(sessionId, currentAgent);
+
+      socket.emit('session:started', { sessionId });
+
+      try {
+        await currentAgent.start();
+      } catch (error) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: (error as Error).message },
+        });
+      }
+    });
+
+    socket.on('task:stop', () => {
+      if (currentAgent) {
+        currentAgent.stop();
+        socket.emit('agent:update', {
+          type: 'message',
+          data: { content: 'Task stopped by user' },
+        });
+      }
+    });
+
+    socket.on('task:continue', async (data: { message: string }) => {
+      if (!currentAgent) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'No active session' },
+        });
+        return;
+      }
+
+      currentAgent.addUserMessage(data.message);
       await currentAgent.start();
-    } catch (error) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: (error as Error).message },
-      });
-    }
-  });
+    });
 
-  // Stop current task
-  socket.on('task:stop', () => {
-    if (currentAgent) {
-      currentAgent.stop();
-      socket.emit('agent:update', {
-        type: 'message',
-        data: { content: 'Task stopped by user' },
-      });
-    }
-  });
+    socket.on('diff:apply', async (data: { diffId: string }) => {
+      if (!currentAgent) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'No active session' },
+        });
+        return;
+      }
 
-  // Continue with follow-up message
-  socket.on('task:continue', async (data: { message: string }) => {
-    if (!currentAgent) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: 'No active session' },
-      });
-      return;
-    }
+      try {
+        const applied = await currentAgent.applyDiff(data.diffId);
+        if (applied) {
+          socket.emit('diff:applied', {
+            diffId: data.diffId,
+            path: applied.path,
+          });
+        } else {
+          socket.emit('agent:update', {
+            type: 'error',
+            data: { message: 'Diff not found' },
+          });
+        }
+      } catch (error) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: (error as Error).message },
+        });
+      }
+    });
 
-    currentAgent.addUserMessage(data.message);
-    await currentAgent.start();
-  });
+    socket.on('diff:reject', (data: { diffId: string }) => {
+      if (!currentAgent) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'No active session' },
+        });
+        return;
+      }
 
-  // Apply a proposed diff
-  socket.on('diff:apply', async (data: { diffId: string }) => {
-    if (!currentAgent) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: 'No active session' },
-      });
-      return;
-    }
-
-    try {
-      const applied = await currentAgent.applyDiff(data.diffId);
-      if (applied) {
-        socket.emit('diff:applied', { diffId: data.diffId, path: applied.path });
+      const rejected = currentAgent.rejectDiff(data.diffId);
+      if (rejected) {
+        socket.emit('diff:rejected', { diffId: data.diffId, path: rejected.path });
       } else {
         socket.emit('agent:update', {
           type: 'error',
           data: { message: 'Diff not found' },
         });
       }
-    } catch (error) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: (error as Error).message },
-      });
-    }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Client disconnected:', socket.id);
+      if (currentAgent) {
+        currentAgent.stop();
+      }
+      if (sessionId) {
+        activeSessions.delete(sessionId);
+      }
+    });
   });
 
-  // Reject a proposed diff
-  socket.on('diff:reject', (data: { diffId: string }) => {
-    if (!currentAgent) {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: 'No active session' },
+  const start = (port: number = DEFAULT_PORT) =>
+    new Promise<{ port: number }>((resolve) => {
+      httpServer.listen(port, () => {
+        const address = httpServer.address();
+        const actualPort =
+          typeof address === 'object' && address ? address.port : port;
+        console.log(`Kimi Coding Agent backend running on port ${actualPort}`);
+        if (!apiKey) {
+          console.warn('Warning: MOONSHOT_API_KEY environment variable not set');
+        }
+        resolve({ port: actualPort });
       });
-      return;
-    }
+    });
 
-    const rejected = currentAgent.rejectDiff(data.diffId);
-    if (rejected) {
-      socket.emit('diff:rejected', { diffId: data.diffId, path: rejected.path });
-    } else {
-      socket.emit('agent:update', {
-        type: 'error',
-        data: { message: 'Diff not found' },
-      });
-    }
-  });
+  const stop = () =>
+    new Promise<void>((resolve, reject) => {
+      if (!httpServer.listening) {
+        resolve();
+        return;
+      }
 
-  // Handle disconnect
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-    if (currentAgent) {
-      currentAgent.stop();
-    }
-    if (sessionId) {
-      activeSessions.delete(sessionId);
-    }
-  });
-});
+      try {
+        io.close(() => {
+          httpServer.close((error) => {
+            if (error) {
+              if ((error as Error).message === 'Server is not running.') {
+                resolve();
+                return;
+              }
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        });
+      } catch (error) {
+        if ((error as Error).message === 'Server is not running.') {
+          resolve();
+          return;
+        }
+        reject(error);
+      }
+    });
 
-// Start server
-httpServer.listen(PORT, () => {
-  console.log(`Kimi Coding Agent backend running on port ${PORT}`);
-  if (!API_KEY) {
-    console.warn('Warning: MOONSHOT_API_KEY environment variable not set');
-  }
-});
+  return { app, httpServer, io, activeSessions, start, stop };
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  const port = Number(process.env.PORT) || DEFAULT_PORT;
+  const server = createBackendServer();
+  void server.start(port);
+}

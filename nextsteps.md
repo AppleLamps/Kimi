@@ -7,6 +7,7 @@ This document outlines potential features, improvements, and enhancements for th
 ## High Priority
 
 ### 1. Testing Infrastructure
+
 **Impact:** Critical for reliability and maintainability
 
 - [ ] Set up testing framework (Vitest for frontend, Jest for backend)
@@ -17,6 +18,7 @@ This document outlines potential features, improvements, and enhancements for th
 - [ ] Configure CI/CD pipeline for automated testing
 
 ### 2. Error Recovery & Resilience
+
 **Impact:** Improves user experience and agent reliability
 
 - [ ] Implement graceful error handling in agent loop
@@ -27,6 +29,7 @@ This document outlines potential features, improvements, and enhancements for th
 - [ ] Implement automatic reconnection with exponential backoff
 
 ### 3. Session Persistence
+
 **Impact:** Enables resuming work and improves productivity
 
 - [ ] Persist sessions to localStorage/IndexedDB
@@ -36,6 +39,7 @@ This document outlines potential features, improvements, and enhancements for th
 - [ ] Store workspace associations with sessions
 
 ### 4. Model Configuration
+
 **Impact:** Flexibility for users with different needs
 
 - [ ] Add UI for model selection (kimi-k2-0711-preview and other Moonshot models)
@@ -50,12 +54,14 @@ This document outlines potential features, improvements, and enhancements for th
 ### 5. UI/UX Enhancements
 
 #### Logs Pane Improvements
+
 - [ ] Add search/filter functionality for logs
 - [ ] Implement log level filtering (errors, tool calls, thinking)
 - [ ] Add export logs feature (JSON, text formats)
 - [ ] Collapse/expand all tool results button
 
 #### Code Review Pane Improvements
+
 - [ ] Add syntax highlighting based on file type
 - [ ] Implement side-by-side diff view option
 - [ ] Add "Apply All" / "Reject All" batch actions
@@ -63,12 +69,14 @@ This document outlines potential features, improvements, and enhancements for th
 - [ ] Add inline commenting on diffs
 
 #### Task Pane Improvements
+
 - [ ] Add message timestamps
 - [ ] Implement message editing/regeneration
 - [ ] Add code block syntax highlighting in chat
 - [ ] Quick actions for common tasks (e.g., "Fix this error", "Add tests")
 
 #### General UI
+
 - [ ] Add keyboard shortcuts (Cmd/Ctrl+Enter to send, Escape to stop)
 - [ ] Implement light/dark theme toggle
 - [ ] Add workspace quick-switch dropdown
@@ -131,23 +139,27 @@ This document outlines potential features, improvements, and enhancements for th
 ### 11. Advanced Features
 
 #### Multi-file Operations
+
 - [ ] Batch propose changes across multiple files
 - [ ] Atomic transactions (apply all or none)
 - [ ] Preview full impact before applying
 
 #### Context Management
+
 - [ ] Smart context window management
 - [ ] Automatic context summarization for long tasks
 - [ ] Pinned context (files always in context)
 - [ ] Context usage visualization
 
 #### Templates & Presets
+
 - [ ] Project templates (React, Express, etc.)
 - [ ] Task presets ("Add tests", "Refactor", "Document")
 - [ ] Custom system prompt overrides
 - [ ] Saved code snippets
 
 #### Collaboration
+
 - [ ] Multi-workspace support
 - [ ] Remote backend deployment option
 - [ ] Session sharing (export/import)
