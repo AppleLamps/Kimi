@@ -3,16 +3,19 @@
 @tailwind utilities;
 
 :root {
-  --color-bg-primary: #0f0f0f;
-  --color-bg-secondary: #1a1a1a;
-  --color-bg-tertiary: #2a2a2a;
-  --color-border: #333333;
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #a0a0a0;
+  --color-bg-primary: #0d0d0d;
+  --color-bg-secondary: #161616;
+  --color-bg-tertiary: #242424;
+  --color-border: #2a2a2a;
+  --color-border-light: #383838;
+  --color-text-primary: #f5f5f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
   --color-accent: #3b82f6;
-  --color-success: #22c55e;
+  --color-success: #10b981;
   --color-error: #ef4444;
-  --color-warning: #eab308;
+  --color-warning: #f59e0b;
+  --color-purple: #8b5cf6;
 }
 
 * {
@@ -23,66 +26,104 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--color-bg-primary);
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - refined */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-bg-secondary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #444444;
+  background: var(--color-border-light);
+}
+
+/* Scrollbar only visible on hover */
+.scroll-container {
+  scrollbar-gutter: stable;
+}
+
+.scroll-container::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.scroll-container:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border);
 }
 
 /* Diff viewer styles */
 .diff-container {
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', 'Source Code Pro', monospace;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .diff-line {
   display: flex;
   white-space: pre;
+  min-height: 22px;
+  transition: background-color 0.15s ease;
+}
+
+.diff-line:hover {
+  filter: brightness(1.1);
 }
 
 .diff-line-number {
   width: 50px;
+  min-width: 50px;
   text-align: right;
-  padding-right: 10px;
-  color: var(--color-text-secondary);
+  padding-right: 12px;
+  color: var(--color-text-muted);
   user-select: none;
   flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
 }
 
 .diff-line-content {
   flex: 1;
-  padding-left: 10px;
+  padding-left: 12px;
+  padding-right: 8px;
 }
 
 .diff-add {
-  background-color: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.08) 100%);
+  color: #34d399;
+}
+
+.diff-add .diff-line-number {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
 }
 
 .diff-remove {
-  background-color: rgba(239, 68, 68, 0.2);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.08) 100%);
   color: #f87171;
 }
 
+.diff-remove .diff-line-number {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
 .diff-header {
-  background-color: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0.08) 100%);
+  color: #a78bfa;
+  font-weight: 500;
+}
+
+.diff-context {
+  color: var(--color-text-secondary);
 }
 
 /* Monaco editor customization */
@@ -115,6 +156,60 @@ body {
   animation: spin 1s linear infinite;
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+  }
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+@keyframes typing {
+  0%, 60%, 100% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.3;
+  }
+}
+
+.animate-typing {
+  animation: typing 1.5s ease-in-out infinite;
+}
+
 /* Draggable title bar for macOS */
 .drag-region {
   -webkit-app-region: drag;
@@ -122,4 +217,212 @@ body {
 
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply px-4 py-2.5 bg-kimi-blue hover:bg-kimi-blue-hover text-white rounded-lg font-medium
+         transition-all duration-200 ease-out shadow-inner-light
+         disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-kimi-blue;
+}
+
+.btn-primary:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  @apply px-4 py-2.5 bg-kimi-gray hover:bg-kimi-light-gray text-white rounded-lg font-medium
+         transition-all duration-200 ease-out border border-kimi-border shadow-inner-light
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-danger {
+  @apply px-4 py-2.5 bg-kimi-red hover:bg-kimi-red-hover text-white rounded-lg font-medium
+         transition-all duration-200 ease-out shadow-inner-light
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-danger:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.btn-success {
+  @apply px-4 py-2.5 bg-kimi-green hover:bg-kimi-green-hover text-white rounded-lg font-medium
+         transition-all duration-200 ease-out shadow-inner-light
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-success:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.btn-ghost {
+  @apply px-3 py-2 text-kimi-text-secondary hover:text-white hover:bg-kimi-light-gray rounded-lg
+         transition-all duration-200 ease-out;
+}
+
+/* Card styles */
+.card {
+  @apply bg-kimi-gray border border-kimi-border rounded-xl shadow-card;
+}
+
+.card-hover {
+  @apply transition-all duration-200 ease-out hover:border-kimi-border-light hover:shadow-lg;
+}
+
+/* Input styles */
+.input-primary {
+  @apply w-full px-4 py-3 bg-kimi-gray border border-kimi-border rounded-xl text-white
+         placeholder-kimi-text-muted transition-all duration-200 ease-out
+         focus:outline-none focus:border-kimi-blue focus:ring-2 focus:ring-kimi-blue/20
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+/* Status badge styles */
+.badge {
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+}
+
+.badge-success {
+  @apply bg-kimi-green-muted text-kimi-green;
+}
+
+.badge-error {
+  @apply bg-kimi-red-muted text-kimi-red;
+}
+
+.badge-warning {
+  @apply bg-kimi-yellow-muted text-kimi-yellow;
+}
+
+.badge-info {
+  @apply bg-kimi-blue/15 text-kimi-blue;
+}
+
+.badge-purple {
+  @apply bg-kimi-purple-muted text-kimi-purple;
+}
+
+/* Message bubbles */
+.message-user {
+  @apply bg-kimi-blue/20 border border-kimi-blue/30 rounded-2xl rounded-tr-md;
+}
+
+.message-agent {
+  @apply bg-kimi-gray border border-kimi-border rounded-2xl rounded-tl-md;
+}
+
+.message-thinking {
+  @apply bg-kimi-purple-muted border border-kimi-purple/20 rounded-2xl;
+}
+
+.message-error {
+  @apply bg-kimi-red-muted border border-kimi-red/30 rounded-2xl;
+}
+
+.message-info {
+  @apply bg-kimi-blue/10 border border-kimi-blue/20 rounded-2xl;
+}
+
+/* Pane styles */
+.pane-header {
+  @apply flex items-center justify-between px-4 py-3 border-b border-kimi-border bg-kimi-darker/50;
+}
+
+.pane-header h2 {
+  @apply font-semibold text-kimi-text flex items-center gap-2;
+}
+
+.pane-content {
+  @apply flex-1 overflow-y-auto;
+}
+
+/* Tooltip styles */
+.tooltip {
+  @apply absolute z-50 px-2 py-1 text-xs bg-kimi-gray border border-kimi-border rounded shadow-lg
+         whitespace-nowrap pointer-events-none;
+}
+
+/* Progress indicator */
+.progress-bar {
+  @apply h-1 bg-kimi-border rounded-full overflow-hidden;
+}
+
+.progress-bar-fill {
+  @apply h-full bg-kimi-blue transition-all duration-300 ease-out;
+}
+
+/* Keyboard shortcut badge */
+.kbd {
+  @apply inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-mono
+         bg-kimi-darker border border-kimi-border rounded text-kimi-text-muted;
+}
+
+/* Collapsible sections */
+.collapsible-header {
+  @apply flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg
+         hover:bg-kimi-light-gray transition-colors duration-150;
+}
+
+.collapsible-content {
+  @apply overflow-hidden transition-all duration-200 ease-out;
+}
+
+/* Empty state */
+.empty-state {
+  @apply flex flex-col items-center justify-center text-center py-12 px-4;
+}
+
+.empty-state-icon {
+  @apply w-16 h-16 mb-4 text-kimi-text-muted opacity-30;
+}
+
+.empty-state-title {
+  @apply text-lg font-medium text-kimi-text-secondary mb-2;
+}
+
+.empty-state-description {
+  @apply text-sm text-kimi-text-muted max-w-sm;
+}
+
+/* Code highlight */
+.code-inline {
+  @apply px-1.5 py-0.5 bg-kimi-darker rounded font-mono text-sm text-kimi-purple;
+}
+
+/* Divider */
+.divider {
+  @apply w-full h-px bg-kimi-border my-4;
+}
+
+/* Focus ring utility */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-kimi-blue/50 focus:ring-offset-2 focus:ring-offset-kimi-dark;
+}
+
+/* Gradient text */
+.gradient-text {
+  @apply bg-gradient-to-r from-kimi-blue to-kimi-purple bg-clip-text text-transparent;
+}
+
+/* Loading skeleton */
+.skeleton {
+  @apply bg-kimi-light-gray rounded animate-pulse;
+}
+
+/* Status dot */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-dot-connected {
+  @apply bg-kimi-green shadow-glow-green;
+}
+
+.status-dot-disconnected {
+  @apply bg-kimi-red shadow-glow-red;
+}
+
+.status-dot-thinking {
+  @apply bg-kimi-purple shadow-glow-purple animate-pulse;
 }

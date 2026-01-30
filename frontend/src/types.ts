@@ -39,7 +39,7 @@ export interface CompleteData {
 
 export interface LogEntry {
   id: string;
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'info';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'info' | 'user';
   timestamp: Date;
   content: string;
   data?: unknown;
