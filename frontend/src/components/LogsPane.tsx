@@ -1,8 +1,9 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import {
   Terminal,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Wrench,
   ArrowRight,
   AlertCircle,
@@ -11,6 +12,8 @@ import {
   Copy,
   CheckCircle,
   Clock,
+  FileDown,
+  Search,
 } from 'lucide-react';
 import type { LogEntry } from '../types';
 
@@ -54,9 +57,23 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function ToolCallEntry({ log }: { log: LogEntry }) {
-  const [expanded, setExpanded] = useState(false);
+function ToolCallEntry({
+  log,
+  forceExpanded,
+  onManualToggle,
+}: {
+  log: LogEntry;
+  forceExpanded: boolean | null;
+  onManualToggle: () => void;
+}) {
+  const [expanded, setExpanded] = useState(forceExpanded ?? false);
   const data = log.data as ToolCallData;
+
+  useEffect(() => {
+    if (forceExpanded !== null) {
+      setExpanded(forceExpanded);
+    }
+  }, [forceExpanded]);
 
   let parsedArgs: Record<string, unknown> = {};
   let argsString = '';
@@ -82,7 +99,10 @@ function ToolCallEntry({ log }: { log: LogEntry }) {
     <div className="card overflow-hidden animate-fade-in">
       <div
         className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-kimi-light-gray/50 transition-colors"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          if (forceExpanded !== null) onManualToggle();
+          setExpanded(!expanded);
+        }}
       >
         <div className="flex items-center gap-2 flex-shrink-0">
           {expanded ? (
@@ -128,10 +148,24 @@ function ToolCallEntry({ log }: { log: LogEntry }) {
   );
 }
 
-function ToolResultEntry({ log }: { log: LogEntry }) {
-  const [expanded, setExpanded] = useState(false);
+function ToolResultEntry({
+  log,
+  forceExpanded,
+  onManualToggle,
+}: {
+  log: LogEntry;
+  forceExpanded: boolean | null;
+  onManualToggle: () => void;
+}) {
+  const [expanded, setExpanded] = useState(forceExpanded ?? false);
   const data = log.data as ToolResultData;
   const result = data?.result || log.content;
+
+  useEffect(() => {
+    if (forceExpanded !== null) {
+      setExpanded(forceExpanded);
+    }
+  }, [forceExpanded]);
 
   // Determine if result is likely an error
   const isError = result.toLowerCase().includes('error') || result.toLowerCase().includes('failed');
@@ -146,7 +180,10 @@ function ToolResultEntry({ log }: { log: LogEntry }) {
     <div className={`card overflow-hidden animate-fade-in ${isError ? 'border-kimi-red/30' : ''}`}>
       <div
         className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-kimi-light-gray/50 transition-colors"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          if (forceExpanded !== null) onManualToggle();
+          setExpanded(!expanded);
+        }}
       >
         <div className="flex items-center gap-2 flex-shrink-0">
           {expanded ? (
@@ -154,9 +191,8 @@ function ToolResultEntry({ log }: { log: LogEntry }) {
           ) : (
             <ChevronRight size={14} className="text-kimi-text-muted" />
           )}
-          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
-            isError ? 'bg-kimi-red/15' : 'bg-kimi-green/15'
-          }`}>
+          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${isError ? 'bg-kimi-red/15' : 'bg-kimi-green/15'
+            }`}>
             <ArrowRight size={12} className={isError ? 'text-kimi-red' : 'text-kimi-green'} />
           </div>
         </div>
@@ -179,9 +215,8 @@ function ToolResultEntry({ log }: { log: LogEntry }) {
 
       {expanded && (
         <div className="px-3 py-2 bg-kimi-darker border-t border-kimi-border">
-          <pre className={`text-xs font-mono whitespace-pre-wrap break-all overflow-x-auto max-h-48 overflow-y-auto ${
-            isError ? 'text-kimi-red' : 'text-kimi-text-secondary'
-          }`}>
+          <pre className={`text-xs font-mono whitespace-pre-wrap break-all overflow-x-auto max-h-48 overflow-y-auto ${isError ? 'text-kimi-red' : 'text-kimi-text-secondary'
+            }`}>
             {result}
           </pre>
         </div>
@@ -193,9 +228,8 @@ function ToolResultEntry({ log }: { log: LogEntry }) {
 function ThinkingEntry({ log, isRunning }: { log: LogEntry; isRunning: boolean }) {
   return (
     <div className="flex items-start gap-2 px-3 py-2 animate-fade-in">
-      <div className={`w-5 h-5 rounded-md bg-kimi-purple/15 flex items-center justify-center flex-shrink-0 ${
-        isRunning ? 'animate-pulse' : ''
-      }`}>
+      <div className={`w-5 h-5 rounded-md bg-kimi-purple/15 flex items-center justify-center flex-shrink-0 ${isRunning ? 'animate-pulse' : ''
+        }`}>
         <Brain size={11} className="text-kimi-purple" />
       </div>
       <p className="text-xs text-kimi-text-muted italic leading-relaxed">
@@ -205,14 +239,31 @@ function ThinkingEntry({ log, isRunning }: { log: LogEntry; isRunning: boolean }
   );
 }
 
-function ErrorEntry({ log }: { log: LogEntry }) {
-  const [expanded, setExpanded] = useState(true);
+function ErrorEntry({
+  log,
+  forceExpanded,
+  onManualToggle,
+}: {
+  log: LogEntry;
+  forceExpanded: boolean | null;
+  onManualToggle: () => void;
+}) {
+  const [expanded, setExpanded] = useState(forceExpanded ?? true);
+
+  useEffect(() => {
+    if (forceExpanded !== null) {
+      setExpanded(forceExpanded);
+    }
+  }, [forceExpanded]);
 
   return (
     <div className="card border-kimi-red/30 overflow-hidden animate-fade-in">
       <div
         className="flex items-start gap-2 px-3 py-2.5 bg-kimi-red/5 cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          if (forceExpanded !== null) onManualToggle();
+          setExpanded(!expanded);
+        }}
       >
         <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
           {expanded ? (
@@ -261,24 +312,115 @@ function InfoEntry({ log }: { log: LogEntry }) {
 
 export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
-
-  // Filter to execution-related logs
-  const executionLogs = logs.filter((log) => {
-    if (!showReasoning && log.type === 'thinking') return false;
-    return ['tool_call', 'tool_result', 'error', 'thinking', 'info'].includes(log.type);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandAllState, setExpandAllState] = useState<boolean | null>(null);
+  const [severityFilters, setSeverityFilters] = useState({
+    tool: true,
+    error: true,
+    thinking: true,
+    info: true,
   });
 
+  const getSeverityForType = (type: LogEntry['type']) => {
+    switch (type) {
+      case 'tool_call':
+      case 'tool_result':
+        return 'tool';
+      case 'thinking':
+        return 'thinking';
+      case 'error':
+        return 'error';
+      case 'message':
+      case 'user':
+      case 'info':
+      default:
+        return 'info';
+    }
+  };
+
+  const executionLogs = useMemo(() => {
+    return logs.filter((log) => {
+      if (!showReasoning && log.type === 'thinking') return false;
+      return ['tool_call', 'tool_result', 'error', 'thinking', 'info'].includes(log.type);
+    });
+  }, [logs, showReasoning]);
+
+  const filteredLogs = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return executionLogs.filter((log) => {
+      const severity = log.severity ?? getSeverityForType(log.type);
+      const passesSeverity =
+        (severity === 'tool' && severityFilters.tool) ||
+        (severity === 'error' && severityFilters.error) ||
+        (severity === 'thinking' && severityFilters.thinking) ||
+        (severity === 'info' && severityFilters.info);
+
+      if (!passesSeverity) return false;
+      if (!query) return true;
+
+      const dataText = log.data ? JSON.stringify(log.data) : '';
+      const combined = `${log.content} ${dataText}`.toLowerCase();
+      return combined.includes(query);
+    });
+  }, [executionLogs, searchQuery, severityFilters]);
+
   // Count tool calls
-  const toolCallCount = executionLogs.filter((log) => log.type === 'tool_call').length;
-  const errorCount = executionLogs.filter((log) => log.type === 'error').length;
+  const toolCallCount = filteredLogs.filter((log) => log.type === 'tool_call').length;
+  const errorCount = filteredLogs.filter((log) => log.type === 'error').length;
 
   // Auto-scroll
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [executionLogs]);
+  }, [filteredLogs]);
 
   // Check if agent is currently running (based on last log being thinking)
   const isRunning = executionLogs.length > 0 && executionLogs[executionLogs.length - 1].type === 'thinking';
+
+  const toggleSeverity = (key: keyof typeof severityFilters) => {
+    setSeverityFilters((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const handleManualExpandToggle = () => {
+    setExpandAllState(null);
+  };
+
+  const hasExpandableEntries = filteredLogs.some((log) =>
+    ['tool_call', 'tool_result', 'error'].includes(log.type)
+  );
+
+  const downloadTextFile = (content: string, filename: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportLogsAsJson = () => {
+    const payload = filteredLogs.map((log) => ({
+      ...log,
+      severity: log.severity ?? getSeverityForType(log.type),
+      timestamp: log.timestamp.toISOString(),
+    }));
+    const json = JSON.stringify(payload, null, 2);
+    downloadTextFile(json, `logs-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  };
+
+  const exportLogsAsText = () => {
+    const lines = filteredLogs.map((log) => {
+      const severity = (log.severity ?? getSeverityForType(log.type)).toUpperCase();
+      const header = `[${log.timestamp.toLocaleString()}] [${severity}] [${log.type}] ${log.content}`;
+      if (!log.data) return header;
+      const dataBlock = JSON.stringify(log.data, null, 2);
+      return `${header}\n${dataBlock}`;
+    });
+    downloadTextFile(lines.join('\n\n'), `logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`);
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -289,7 +431,7 @@ export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
             <Terminal size={18} className="text-kimi-green" />
             Logs
           </h2>
-          {executionLogs.length > 0 && (
+          {filteredLogs.length > 0 && (
             <div className="flex items-center gap-2">
               {toolCallCount > 0 && (
                 <span className="badge badge-warning text-[10px]">
@@ -304,11 +446,94 @@ export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
             </div>
           )}
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setExpandAllState(true)}
+            disabled={!hasExpandableEntries}
+            className="btn-ghost px-2 py-1 text-[10px] rounded-md disabled:opacity-40"
+            title="Expand all"
+          >
+            <ChevronDown size={12} />
+          </button>
+          <button
+            onClick={() => setExpandAllState(false)}
+            disabled={!hasExpandableEntries}
+            className="btn-ghost px-2 py-1 text-[10px] rounded-md disabled:opacity-40"
+            title="Collapse all"
+          >
+            <ChevronUp size={12} />
+          </button>
+          <button
+            onClick={exportLogsAsJson}
+            className="btn-ghost px-2 py-1 text-[10px] rounded-md"
+            title="Export logs as JSON"
+          >
+            <FileDown size={12} />
+          </button>
+          <button
+            onClick={exportLogsAsText}
+            className="btn-ghost px-2 py-1 text-[10px] rounded-md"
+            title="Export logs as text"
+          >
+            <FileDown size={12} />
+          </button>
+        </div>
+      </div>
+
+      <div className="px-3 pt-3 space-y-2">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-2.5 text-kimi-text-muted" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search logs..."
+            className="w-full bg-kimi-gray border border-kimi-border rounded-lg pl-9 pr-3 py-2 text-xs text-kimi-text-secondary focus:outline-none focus:border-kimi-border-light"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => toggleSeverity('error')}
+            className={`text-[10px] px-2.5 py-1 rounded-md border ${severityFilters.error
+              ? 'bg-kimi-red/15 border-kimi-red/30 text-kimi-red'
+              : 'bg-kimi-gray border-kimi-border text-kimi-text-muted'
+              }`}
+          >
+            Errors
+          </button>
+          <button
+            onClick={() => toggleSeverity('tool')}
+            className={`text-[10px] px-2.5 py-1 rounded-md border ${severityFilters.tool
+              ? 'bg-kimi-yellow/15 border-kimi-yellow/30 text-kimi-yellow'
+              : 'bg-kimi-gray border-kimi-border text-kimi-text-muted'
+              }`}
+          >
+            Tool calls
+          </button>
+          <button
+            onClick={() => toggleSeverity('thinking')}
+            className={`text-[10px] px-2.5 py-1 rounded-md border ${severityFilters.thinking
+              ? 'bg-kimi-purple/15 border-kimi-purple/30 text-kimi-purple'
+              : 'bg-kimi-gray border-kimi-border text-kimi-text-muted'
+              }`}
+          >
+            Thinking
+          </button>
+          <button
+            onClick={() => toggleSeverity('info')}
+            className={`text-[10px] px-2.5 py-1 rounded-md border ${severityFilters.info
+              ? 'bg-kimi-blue/15 border-kimi-blue/30 text-kimi-blue'
+              : 'bg-kimi-gray border-kimi-border text-kimi-text-muted'
+              }`}
+          >
+            Info
+          </button>
+        </div>
       </div>
 
       {/* Logs */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 scroll-container">
-        {executionLogs.length === 0 ? (
+        {filteredLogs.length === 0 ? (
           <div className="empty-state mt-8">
             <div className="w-16 h-16 rounded-2xl bg-kimi-gray flex items-center justify-center mb-4">
               <Terminal size={28} className="text-kimi-text-muted opacity-40" />
@@ -319,16 +544,43 @@ export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
             </p>
           </div>
         ) : (
-          executionLogs.map((log) => {
+          filteredLogs.map((log) => {
             switch (log.type) {
               case 'tool_call':
-                return <ToolCallEntry key={log.id} log={log} />;
+                return (
+                  <ToolCallEntry
+                    key={log.id}
+                    log={log}
+                    forceExpanded={expandAllState}
+                    onManualToggle={handleManualExpandToggle}
+                  />
+                );
               case 'tool_result':
-                return <ToolResultEntry key={log.id} log={log} />;
+                return (
+                  <ToolResultEntry
+                    key={log.id}
+                    log={log}
+                    forceExpanded={expandAllState}
+                    onManualToggle={handleManualExpandToggle}
+                  />
+                );
               case 'thinking':
-                return <ThinkingEntry key={log.id} log={log} isRunning={isRunning && log === executionLogs[executionLogs.length - 1]} />;
+                return (
+                  <ThinkingEntry
+                    key={log.id}
+                    log={log}
+                    isRunning={isRunning && log === executionLogs[executionLogs.length - 1]}
+                  />
+                );
               case 'error':
-                return <ErrorEntry key={log.id} log={log} />;
+                return (
+                  <ErrorEntry
+                    key={log.id}
+                    log={log}
+                    forceExpanded={expandAllState}
+                    onManualToggle={handleManualExpandToggle}
+                  />
+                );
               default:
                 return <InfoEntry key={log.id} log={log} />;
             }

@@ -11,6 +11,8 @@ export interface AgentUpdate {
   data: unknown;
 }
 
+export type LogSeverity = 'error' | 'tool' | 'thinking' | 'info';
+
 export interface ThinkingData {
   iteration: number;
 }
@@ -40,6 +42,7 @@ export interface CompleteData {
 export interface LogEntry {
   id: string;
   type: 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'info' | 'user';
+  severity: LogSeverity;
   timestamp: Date;
   content: string;
   data?: unknown;
@@ -87,6 +90,7 @@ export interface PersistedAgentState {
 export interface PersistedLogEntry {
   id: string;
   type: LogEntry['type'];
+  severity?: LogSeverity;
   timestamp: string;
   content: string;
   data?: unknown;

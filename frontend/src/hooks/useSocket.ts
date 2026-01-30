@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { AgentUpdate, DiffResult, LogEntry, ModelConfig, PersistedAgentState, PersistedLogEntry, SessionRecord } from '../types';
+import type { AgentUpdate, DiffResult, LogEntry, LogSeverity, ModelConfig, PersistedAgentState, PersistedLogEntry, SessionRecord } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 const BACKEND_URL = 'http://localhost:3001';
@@ -40,16 +40,34 @@ export function useSocket(): UseSocketReturn {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [pendingDiffs, setPendingDiffs] = useState<DiffResult[]>([]);
 
+  const getSeverityForType = useCallback((type: LogEntry['type']): LogSeverity => {
+    switch (type) {
+      case 'tool_call':
+      case 'tool_result':
+        return 'tool';
+      case 'thinking':
+        return 'thinking';
+      case 'error':
+        return 'error';
+      case 'message':
+      case 'user':
+      case 'info':
+      default:
+        return 'info';
+    }
+  }, []);
+
   const addLog = useCallback((type: LogEntry['type'], content: string, data?: unknown) => {
     const entry: LogEntry = {
       id: uuidv4(),
       type,
+      severity: getSeverityForType(type),
       timestamp: new Date(),
       content,
       data,
     };
     setLogs((prev) => [...prev, entry]);
-  }, []);
+  }, [getSeverityForType]);
 
   const requestSessionState = useCallback(() => {
     const sessionToRequest = sessionIdRef.current;
@@ -76,10 +94,11 @@ export function useSocket(): UseSocketReturn {
 
     const restoredLogs = (record.logs || []).map((entry: PersistedLogEntry) => ({
       ...entry,
+      severity: entry.severity ?? getSeverityForType(entry.type),
       timestamp: new Date(entry.timestamp),
     }));
     setLogs(restoredLogs as LogEntry[]);
-  }, []);
+  }, [getSeverityForType]);
 
   useEffect(() => {
     const socket = io(BACKEND_URL, {
