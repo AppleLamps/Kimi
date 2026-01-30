@@ -30,6 +30,7 @@ export interface BackendServerInstance {
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_CORS_ORIGINS = ['http://localhost:3000', 'http://localhost:5173'];
+const SESSION_GRACE_MS = 2 * 60 * 1000;
 
 export function createBackendServer(
   options: BackendServerOptions = {}
@@ -56,6 +57,7 @@ export function createBackendServer(
   app.use(express.json());
 
   const activeSessions = new Map<string, AgentLoop>();
+  const sessionTimeouts = new Map<string, NodeJS.Timeout>();
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', hasApiKey: !!apiKey });
@@ -98,6 +100,47 @@ export function createBackendServer(
       socket.emit('agent:update', update);
     };
 
+    socket.on('session:resume', (data: { sessionId?: string }) => {
+      const requestedId = data?.sessionId;
+      if (!requestedId) {
+        socket.emit('session:expired', {
+          message: 'No session to resume. Please start a new task.',
+        });
+        return;
+      }
+
+      const existingAgent = activeSessions.get(requestedId);
+      if (!existingAgent) {
+        socket.emit('session:expired', {
+          sessionId: requestedId,
+          message: 'Session expired. Please start a new task.',
+        });
+        return;
+      }
+
+      currentAgent = existingAgent;
+      sessionId = requestedId;
+      currentAgent.setUpdateCallback(onUpdate);
+
+      const timeout = sessionTimeouts.get(requestedId);
+      if (timeout) {
+        clearTimeout(timeout);
+        sessionTimeouts.delete(requestedId);
+      }
+
+      socket.emit('session:resumed', { sessionId: requestedId });
+      socket.emit('session:diffs', { diffs: currentAgent.getPendingDiffs() });
+
+      socket.emit('agent:update', {
+        type: 'info',
+        data: {
+          message: currentAgent.getState().isRunning
+            ? 'Session resumed. Agent is still running.'
+            : 'Session resumed.',
+        },
+      });
+    });
+
     socket.on('task:start', async (data: TaskRequest) => {
       if (!apiKey) {
         socket.emit('agent:update', {
@@ -134,6 +177,12 @@ export function createBackendServer(
       sessionId = currentAgent.getState().taskId;
       activeSessions.set(sessionId, currentAgent);
 
+      const timeout = sessionTimeouts.get(sessionId);
+      if (timeout) {
+        clearTimeout(timeout);
+        sessionTimeouts.delete(sessionId);
+      }
+
       socket.emit('session:started', { sessionId });
 
       try {
@@ -166,7 +215,14 @@ export function createBackendServer(
       }
 
       currentAgent.addUserMessage(data.message);
-      await currentAgent.start();
+      try {
+        await currentAgent.start();
+      } catch (error) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: (error as Error).message },
+        });
+      }
     });
 
     socket.on('diff:apply', async (data: { diffId: string }) => {
@@ -221,11 +277,14 @@ export function createBackendServer(
 
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);
-      if (currentAgent) {
-        currentAgent.stop();
-      }
-      if (sessionId) {
-        activeSessions.delete(sessionId);
+      if (sessionId && currentAgent) {
+        const timeout = setTimeout(() => {
+          currentAgent?.stop();
+          activeSessions.delete(sessionId);
+          sessionTimeouts.delete(sessionId);
+        }, SESSION_GRACE_MS);
+        timeout.unref();
+        sessionTimeouts.set(sessionId, timeout);
       }
     });
   });
@@ -246,6 +305,11 @@ export function createBackendServer(
 
   const stop = () =>
     new Promise<void>((resolve, reject) => {
+      for (const timeout of sessionTimeouts.values()) {
+        clearTimeout(timeout);
+      }
+      sessionTimeouts.clear();
+
       if (!httpServer.listening) {
         resolve();
         return;

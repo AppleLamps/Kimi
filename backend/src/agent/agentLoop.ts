@@ -56,6 +56,10 @@ export class AgentLoop {
     return this.toolExecutor;
   }
 
+  setUpdateCallback(onUpdate: UpdateCallback): void {
+    this.onUpdate = onUpdate;
+  }
+
   async start(): Promise<void> {
     if (this.state.isRunning) {
       throw new Error('Agent is already running');
@@ -98,11 +102,20 @@ export class AgentLoop {
       });
 
       // Get next action from the model
-      const response = await this.client.chat(
-        this.state.messages,
-        TOOL_DEFINITIONS,
-        0.3
-      );
+      let response: Awaited<ReturnType<MoonshotClient['chat']>>;
+      try {
+        response = await this.client.chat(
+          this.state.messages,
+          TOOL_DEFINITIONS,
+          0.3
+        );
+      } catch (error) {
+        this.onUpdate({
+          type: 'error',
+          data: { message: this.formatChatError(error) },
+        });
+        break;
+      }
 
       // Handle text response
       if (response.content) {
@@ -239,8 +252,29 @@ export class AgentLoop {
           return `Unknown tool: ${name}`;
       }
     } catch (error) {
-      return `Error executing tool ${name}: ${(error as Error).message}`;
+      const message = error instanceof Error ? error.message : String(error);
+      const isParseError = error instanceof SyntaxError;
+      const actionableHint = isParseError
+        ? 'Tool arguments were invalid JSON. Please retry.'
+        : 'Please check the inputs and retry.';
+
+      this.onUpdate({
+        type: 'error',
+        data: { message: `Tool ${name} failed: ${message}. ${actionableHint}` },
+      });
+
+      return `Error executing tool ${name}: ${message}`;
     }
+  }
+
+  private formatChatError(error: unknown): string {
+    const fallback = 'The model request failed. Please check your network connection and API key, then retry.';
+
+    if (error instanceof Error) {
+      return `Model request failed: ${error.message}. Please check your network connection and API key, then retry.`;
+    }
+
+    return fallback;
   }
 
   // Called by the server when user approves a diff

@@ -9,6 +9,9 @@ interface UseSocketReturn {
   isConnected: boolean;
   isRunning: boolean;
   sessionId: string | null;
+  connectionStatus: 'connected' | 'disconnected' | 'reconnecting' | 'failed';
+  reconnectAttempt: number;
+  connectionMessage: string | null;
   logs: LogEntry[];
   pendingDiffs: DiffResult[];
   startTask: (task: string, workspacePath: string) => void;
@@ -21,9 +24,13 @@ interface UseSocketReturn {
 
 export function useSocket(): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting' | 'failed'>('disconnected');
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [pendingDiffs, setPendingDiffs] = useState<DiffResult[]>([]);
 
@@ -42,26 +49,83 @@ export function useSocket(): UseSocketReturn {
     const socket = io(BACKEND_URL, {
       reconnection: true,
       reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 5000,
+      randomizationFactor: 0.5,
     });
 
     socketRef.current = socket;
 
     socket.on('connect', () => {
       setIsConnected(true);
+      setConnectionStatus('connected');
+      setReconnectAttempt(0);
+      setConnectionMessage(null);
       addLog('info', 'Connected to backend');
+
+      const resumeId = sessionIdRef.current;
+      if (resumeId) {
+        socket.emit('session:resume', { sessionId: resumeId });
+      }
+    });
+
+    socket.on('connect_error', (error) => {
+      setConnectionStatus('reconnecting');
+      setConnectionMessage('Unable to connect to backend. Retrying...');
+      addLog('error', `Connection error: ${(error as Error).message}`);
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      setConnectionStatus('reconnecting');
+      setReconnectAttempt(attempt);
+      setConnectionMessage(`Reconnecting... (attempt ${attempt})`);
+      addLog('info', `Reconnecting... (attempt ${attempt})`);
+    });
+
+    socket.io.on('reconnect_error', (error) => {
+      setConnectionStatus('reconnecting');
+      setConnectionMessage('Reconnection failed. Retrying...');
+      addLog('error', `Reconnection error: ${(error as Error).message}`);
+    });
+
+    socket.io.on('reconnect_failed', () => {
+      setConnectionStatus('failed');
+      setConnectionMessage('Reconnection failed. Please restart the backend.');
+      addLog('error', 'Reconnection failed. Please restart the backend.');
     });
 
     socket.on('disconnect', () => {
       setIsConnected(false);
       setIsRunning(false);
+      setConnectionStatus('disconnected');
+      setConnectionMessage('Disconnected from backend');
       addLog('info', 'Disconnected from backend');
     });
 
     socket.on('session:started', (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
+      sessionIdRef.current = data.sessionId;
       setIsRunning(true);
       addLog('info', `Session started: ${data.sessionId}`);
+    });
+
+    socket.on('session:resumed', (data: { sessionId: string }) => {
+      setSessionId(data.sessionId);
+      sessionIdRef.current = data.sessionId;
+      addLog('info', `Session resumed: ${data.sessionId}`);
+    });
+
+    socket.on('session:diffs', (data: { diffs: DiffResult[] }) => {
+      setPendingDiffs(data.diffs || []);
+    });
+
+    socket.on('session:expired', (data: { message?: string }) => {
+      setSessionId(null);
+      sessionIdRef.current = null;
+      setIsRunning(false);
+      const message = data?.message || 'Session expired. Please start a new task.';
+      setConnectionMessage(message);
+      addLog('error', message);
     });
 
     socket.on('agent:update', (update: AgentUpdate) => {
@@ -101,6 +165,11 @@ export function useSocket(): UseSocketReturn {
         case 'error': {
           const data = update.data as { message: string };
           addLog('error', data.message);
+          break;
+        }
+        case 'info': {
+          const data = update.data as { message: string };
+          addLog('info', data.message);
           break;
         }
       }
@@ -162,6 +231,9 @@ export function useSocket(): UseSocketReturn {
     isConnected,
     isRunning,
     sessionId,
+    connectionStatus,
+    reconnectAttempt,
+    connectionMessage,
     logs,
     pendingDiffs,
     startTask,

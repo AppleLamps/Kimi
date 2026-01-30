@@ -3,12 +3,16 @@ import { useSocket } from './hooks/useSocket';
 import TaskPane from './components/TaskPane';
 import DiffPane from './components/DiffPane';
 import LogsPane from './components/LogsPane';
+import StatusBanner from './components/StatusBanner';
 import { FolderOpen, Wifi, WifiOff, Eye, EyeOff, Sparkles, Zap } from 'lucide-react';
 
 function App() {
   const {
     isConnected,
     isRunning,
+    connectionStatus,
+    reconnectAttempt,
+    connectionMessage,
     logs,
     pendingDiffs,
     startTask,
@@ -118,11 +122,10 @@ function App() {
           {/* Reasoning Toggle */}
           <button
             onClick={() => setShowReasoningOutput(!showReasoningOutput)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${
-              showReasoningOutput
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${showReasoningOutput
                 ? 'bg-kimi-purple/20 text-kimi-purple border border-kimi-purple/30'
                 : 'bg-kimi-gray text-kimi-text-secondary border border-kimi-border hover:bg-kimi-light-gray'
-            }`}
+              }`}
             title={showReasoningOutput ? 'Hide agent reasoning' : 'Show agent reasoning'}
           >
             {showReasoningOutput ? <Eye size={16} /> : <EyeOff size={16} />}
@@ -130,6 +133,12 @@ function App() {
           </button>
         </div>
       </header>
+
+      <StatusBanner
+        status={connectionStatus}
+        attempt={reconnectAttempt}
+        message={connectionMessage}
+      />
 
       {/* Main content */}
       <main className="flex-1 flex overflow-hidden">

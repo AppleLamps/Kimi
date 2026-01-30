@@ -7,7 +7,7 @@ export interface DiffResult {
 }
 
 export interface AgentUpdate {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'complete' | 'error';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'complete' | 'error' | 'info';
   data: unknown;
 }
 
