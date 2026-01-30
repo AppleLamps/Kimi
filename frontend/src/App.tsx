@@ -5,8 +5,9 @@ import DiffPane from './components/DiffPane';
 import LogsPane from './components/LogsPane';
 import StatusBanner from './components/StatusBanner';
 import SessionHistory from './components/SessionHistory';
+import ModelConfigPanel from './components/ModelConfigPanel';
 import { getSessionStore } from './utils/sessionStore';
-import type { LogEntry, PersistedLogEntry, SessionRecord } from './types';
+import type { LogEntry, ModelConfig, PersistedLogEntry, SessionRecord } from './types';
 import { FolderOpen, Wifi, WifiOff, Eye, EyeOff, Sparkles, Zap } from 'lucide-react';
 
 function App() {
@@ -35,6 +36,12 @@ function App() {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [sessionSearch, setSessionSearch] = useState('');
   const [currentTaskTitle, setCurrentTaskTitle] = useState('');
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({
+    model: 'kimi-k2-0711-preview',
+    temperature: 0.3,
+    maxTokens: 100000,
+    baseUrl: '',
+  });
   const sessionsRef = useRef<SessionRecord[]>([]);
 
   const sessionStore = useMemo(() => getSessionStore(), []);
@@ -79,8 +86,32 @@ function App() {
       return;
     }
     setCurrentTaskTitle(task);
-    startTask(task, workspacePath);
+    const normalizedConfig: ModelConfig = {
+      ...modelConfig,
+      baseUrl: modelConfig.baseUrl?.trim() || undefined,
+    };
+    startTask(task, workspacePath, normalizedConfig);
   };
+
+  useEffect(() => {
+    if (agentState?.modelConfig) {
+      setModelConfig((prev) => {
+        const next = agentState.modelConfig;
+        if (
+          prev.model === next.model &&
+          prev.temperature === next.temperature &&
+          prev.maxTokens === next.maxTokens &&
+          (prev.baseUrl || '') === (next.baseUrl || '')
+        ) {
+          return prev;
+        }
+        return {
+          ...next,
+          baseUrl: next.baseUrl || '',
+        };
+      });
+    }
+  }, [agentState]);
 
   const serializeLogs = (entries: LogEntry[]): PersistedLogEntry[] => {
     return entries.map((entry) => ({
@@ -105,6 +136,7 @@ function App() {
       logs: serializeLogs(logs),
       pendingDiffs,
       agentState,
+      modelConfig: agentState?.modelConfig ?? modelConfig,
     };
 
     await sessionStore.upsert(record);
@@ -129,6 +161,12 @@ function App() {
       setWorkspacePath(record.workspacePath);
     }
     setCurrentTaskTitle(record.title);
+    if (record.modelConfig) {
+      setModelConfig({
+        ...record.modelConfig,
+        baseUrl: record.modelConfig.baseUrl || '',
+      });
+    }
     loadSessionSnapshot(record);
     resumeSession(record.id);
   };
@@ -149,6 +187,9 @@ function App() {
       record.createdAt = new Date().toISOString();
     }
     record.updatedAt = new Date().toISOString();
+    if (!record.modelConfig) {
+      record.modelConfig = modelConfig;
+    }
 
     await sessionStore.upsert(record);
     setSessions((prev) => [record, ...prev.filter((session) => session.id !== record.id)]);
@@ -247,6 +288,10 @@ function App() {
             onResume={handleResumeSession}
             onExport={handleExportSession}
             onImport={handleImportSession}
+          />
+          <ModelConfigPanel
+            config={modelConfig}
+            onChange={setModelConfig}
           />
           <div className="flex-1 min-h-0">
             <TaskPane

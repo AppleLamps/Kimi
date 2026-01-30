@@ -11,6 +11,7 @@ import type {
   ReadFileParams,
   ProposeFileChangeParams,
   RunCommandParams,
+  ModelConfig,
 } from '../types.js';
 
 export type UpdateCallback = (update: AgentUpdate) => void;
@@ -28,9 +29,21 @@ export class AgentLoop {
     apiKey: string,
     workspacePath: string,
     task: string,
-    onUpdate: UpdateCallback
+    onUpdate: UpdateCallback,
+    modelConfig?: ModelConfig
   ) {
-    this.client = new MoonshotClient(apiKey);
+    const resolvedModelConfig: ModelConfig = {
+      model: modelConfig?.model ?? 'kimi-k2-0711-preview',
+      temperature: modelConfig?.temperature ?? 0.3,
+      maxTokens: modelConfig?.maxTokens ?? 100000,
+      baseUrl: modelConfig?.baseUrl,
+    };
+
+    this.client = new MoonshotClient(
+      apiKey,
+      resolvedModelConfig.model,
+      resolvedModelConfig.baseUrl ?? 'https://api.moonshot.cn/v1'
+    );
     this.toolExecutor = new ToolExecutor(workspacePath);
     this.onUpdate = onUpdate;
 
@@ -45,6 +58,7 @@ export class AgentLoop {
       isRunning: false,
       isComplete: false,
       workspacePath,
+      modelConfig: resolvedModelConfig,
     };
   }
 
@@ -60,6 +74,7 @@ export class AgentLoop {
     isRunning: boolean;
     isComplete: boolean;
     workspacePath: string;
+    modelConfig: ModelConfig;
   } {
     return {
       taskId: this.state.taskId,
@@ -69,6 +84,7 @@ export class AgentLoop {
       isRunning: this.state.isRunning,
       isComplete: this.state.isComplete,
       workspacePath: this.state.workspacePath,
+      modelConfig: this.state.modelConfig,
     };
   }
 
@@ -124,10 +140,12 @@ export class AgentLoop {
       // Get next action from the model
       let response: Awaited<ReturnType<MoonshotClient['chat']>>;
       try {
+        const { temperature, maxTokens } = this.state.modelConfig;
         response = await this.client.chat(
           this.state.messages,
           TOOL_DEFINITIONS,
-          0.3
+          temperature,
+          maxTokens
         );
       } catch (error) {
         this.onUpdate({

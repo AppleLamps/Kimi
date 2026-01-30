@@ -5,7 +5,7 @@ import { io as socketClient, Socket } from 'socket.io-client';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import type { AgentUpdate } from '../src/types.js';
+import type { AgentUpdate, ModelConfig } from '../src/types.js';
 import { createBackendServer } from '../src/server.js';
 
 function waitForEvent<T>(socket: Socket, event: string): Promise<T> {
@@ -29,7 +29,8 @@ class FakeAgentLoop {
         _apiKey: string,
         workspacePath: string,
         _task: string,
-        private onUpdate: (update: AgentUpdate) => void
+        private onUpdate: (update: AgentUpdate) => void,
+        private modelConfig?: ModelConfig
     ) {
         this.state.workspacePath = workspacePath;
     }
@@ -71,6 +72,11 @@ class FakeAgentLoop {
             isRunning: this.state.isRunning,
             isComplete: this.state.isComplete,
             workspacePath: this.state.workspacePath,
+            modelConfig: this.modelConfig || {
+                model: 'kimi-k2-0711-preview',
+                temperature: 0.3,
+                maxTokens: 100000,
+            },
         };
     }
 }
@@ -123,8 +129,8 @@ describe('Socket.IO integration', () => {
     it('starts a session when inputs are valid', async () => {
         const server = createBackendServer({
             apiKey: 'test-key',
-            agentLoopFactory: (apiKey, workspacePath, task, onUpdate) =>
-                new FakeAgentLoop(apiKey, workspacePath, task, onUpdate) as never,
+            agentLoopFactory: (apiKey, workspacePath, task, onUpdate, modelConfig) =>
+                new FakeAgentLoop(apiKey, workspacePath, task, onUpdate, modelConfig) as never,
         });
         const { port } = await server.start(0);
 

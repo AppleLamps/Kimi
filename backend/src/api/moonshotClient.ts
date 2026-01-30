@@ -18,10 +18,14 @@ export class MoonshotClient {
   private client: OpenAI;
   private model: string;
 
-  constructor(apiKey: string, model: string = DEFAULT_MODEL) {
+  constructor(
+    apiKey: string,
+    model: string = DEFAULT_MODEL,
+    baseUrl: string = MOONSHOT_BASE_URL
+  ) {
     this.client = new OpenAI({
       apiKey,
-      baseURL: MOONSHOT_BASE_URL,
+      baseURL: baseUrl,
     });
     this.model = model;
   }
@@ -29,7 +33,8 @@ export class MoonshotClient {
   async chat(
     messages: Message[],
     tools: ToolDefinition[],
-    temperature: number = 0.3
+    temperature: number = 0.3,
+    maxTokens: number = 100000
   ): Promise<ChatCompletionResponse> {
     const formattedMessages = messages.map((msg) => {
       if (msg.role === 'tool') {
@@ -68,7 +73,7 @@ export class MoonshotClient {
           messages: formattedMessages,
           tools: tools.length > 0 ? tools : undefined,
           temperature,
-          max_tokens: 4096,
+          max_tokens: maxTokens,
         });
 
         const choice = response.choices[0];

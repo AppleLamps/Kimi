@@ -61,6 +61,13 @@ export interface DiffResult {
   id: string;
 }
 
+export interface ModelConfig {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  baseUrl?: string;
+}
+
 // Agent state
 export interface AgentState {
   taskId: string;
@@ -70,6 +77,7 @@ export interface AgentState {
   isRunning: boolean;
   isComplete: boolean;
   workspacePath: string;
+  modelConfig: ModelConfig;
 }
 
 // WebSocket events
@@ -81,6 +89,7 @@ export interface AgentUpdate {
 export interface TaskRequest {
   task: string;
   workspacePath: string;
+  modelConfig?: ModelConfig;
 }
 
 export interface ApplyDiffRequest {

@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import { AgentLoop, UpdateCallback } from './agent/agentLoop.js';
 import { validateWorkspace, getWorkspaceInfo } from './workspace/workspace.js';
-import type { TaskRequest, AgentUpdate } from './types.js';
+import type { TaskRequest, AgentUpdate, ModelConfig } from './types.js';
 
 export interface BackendServerOptions {
   apiKey?: string;
@@ -13,7 +13,8 @@ export interface BackendServerOptions {
     apiKey: string,
     workspacePath: string,
     task: string,
-    onUpdate: UpdateCallback
+    onUpdate: UpdateCallback,
+    modelConfig?: ModelConfig
   ) => AgentLoop;
   validateWorkspaceFn?: typeof validateWorkspace;
   getWorkspaceInfoFn?: typeof getWorkspaceInfo;
@@ -39,8 +40,8 @@ export function createBackendServer(
   const corsOrigins = options.corsOrigins ?? DEFAULT_CORS_ORIGINS;
   const makeAgent =
     options.agentLoopFactory ??
-    ((key, workspacePath, task, onUpdate) =>
-      new AgentLoop(key, workspacePath, task, onUpdate));
+    ((key, workspacePath, task, onUpdate, modelConfig) =>
+      new AgentLoop(key, workspacePath, task, onUpdate, modelConfig));
   const validateWorkspaceFn = options.validateWorkspaceFn ?? validateWorkspace;
   const getWorkspaceInfoFn = options.getWorkspaceInfoFn ?? getWorkspaceInfo;
 
@@ -172,7 +173,7 @@ export function createBackendServer(
         return;
       }
 
-      const { task, workspacePath } = data;
+      const { task, workspacePath, modelConfig } = data;
 
       if (!task || !workspacePath) {
         socket.emit('agent:update', {
@@ -195,7 +196,14 @@ export function createBackendServer(
         currentAgent.stop();
       }
 
-      currentAgent = makeAgent(apiKey, workspacePath, task, onUpdate);
+      const resolvedModelConfig = {
+        model: modelConfig?.model ?? 'kimi-k2-0711-preview',
+        temperature: modelConfig?.temperature ?? 0.3,
+        maxTokens: modelConfig?.maxTokens ?? 100000,
+        baseUrl: modelConfig?.baseUrl,
+      };
+
+      currentAgent = makeAgent(apiKey, workspacePath, task, onUpdate, resolvedModelConfig);
       sessionId = currentAgent.getState().taskId;
       activeSessions.set(sessionId, currentAgent);
 

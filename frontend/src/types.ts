@@ -52,6 +52,13 @@ export interface WorkspaceInfo {
   fileCount: number;
 }
 
+export interface ModelConfig {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  baseUrl?: string;
+}
+
 export interface AgentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
@@ -74,6 +81,7 @@ export interface PersistedAgentState {
   isRunning: boolean;
   isComplete: boolean;
   workspacePath: string;
+  modelConfig: ModelConfig;
 }
 
 export interface PersistedLogEntry {
@@ -93,4 +101,5 @@ export interface SessionRecord {
   logs: PersistedLogEntry[];
   pendingDiffs: DiffResult[];
   agentState?: PersistedAgentState | null;
+  modelConfig?: ModelConfig | null;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { AgentUpdate, DiffResult, LogEntry, PersistedAgentState, PersistedLogEntry, SessionRecord } from '../types';
+import type { AgentUpdate, DiffResult, LogEntry, ModelConfig, PersistedAgentState, PersistedLogEntry, SessionRecord } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 const BACKEND_URL = 'http://localhost:3001';
@@ -15,7 +15,7 @@ interface UseSocketReturn {
   agentState: PersistedAgentState | null;
   logs: LogEntry[];
   pendingDiffs: DiffResult[];
-  startTask: (task: string, workspacePath: string) => void;
+  startTask: (task: string, workspacePath: string, modelConfig: ModelConfig) => void;
   resumeSession: (sessionId: string) => void;
   requestSessionState: () => void;
   loadSessionSnapshot: (record: SessionRecord) => void;
@@ -240,10 +240,10 @@ export function useSocket(): UseSocketReturn {
     };
   }, [addLog, requestSessionState, scheduleSessionStateRequest]);
 
-  const startTask = useCallback((task: string, workspacePath: string) => {
+  const startTask = useCallback((task: string, workspacePath: string, modelConfig: ModelConfig) => {
     if (socketRef.current) {
       setPendingDiffs([]);
-      socketRef.current.emit('task:start', { task, workspacePath });
+      socketRef.current.emit('task:start', { task, workspacePath, modelConfig });
     }
   }, []);
 
