@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSocket } from './hooks/useSocket';
 import TaskPane from './components/TaskPane';
 import DiffPane from './components/DiffPane';
 import LogsPane from './components/LogsPane';
 import StatusBanner from './components/StatusBanner';
+import SessionHistory from './components/SessionHistory';
+import { getSessionStore } from './utils/sessionStore';
+import type { LogEntry, PersistedLogEntry, SessionRecord } from './types';
 import { FolderOpen, Wifi, WifiOff, Eye, EyeOff, Sparkles, Zap } from 'lucide-react';
 
 function App() {
@@ -13,9 +16,13 @@ function App() {
     connectionStatus,
     reconnectAttempt,
     connectionMessage,
+    sessionId,
+    agentState,
     logs,
     pendingDiffs,
     startTask,
+    resumeSession,
+    loadSessionSnapshot,
     stopTask,
     continueTask,
     applyDiff,
@@ -25,6 +32,12 @@ function App() {
 
   const [workspacePath, setWorkspacePath] = useState<string>('');
   const [showReasoningOutput, setShowReasoningOutput] = useState(true);
+  const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const [sessionSearch, setSessionSearch] = useState('');
+  const [currentTaskTitle, setCurrentTaskTitle] = useState('');
+  const sessionsRef = useRef<SessionRecord[]>([]);
+
+  const sessionStore = useMemo(() => getSessionStore(), []);
 
   // Try to get home directory on mount
   useEffect(() => {
@@ -34,6 +47,16 @@ function App() {
       });
     }
   }, []);
+
+  useEffect(() => {
+    sessionStore.list().then((stored) => {
+      setSessions(stored || []);
+    });
+  }, [sessionStore]);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   const handleSelectDirectory = async () => {
     if (window.electronAPI?.selectDirectory) {
@@ -55,7 +78,80 @@ function App() {
       alert('Please select a workspace directory first');
       return;
     }
+    setCurrentTaskTitle(task);
     startTask(task, workspacePath);
+  };
+
+  const serializeLogs = (entries: LogEntry[]): PersistedLogEntry[] => {
+    return entries.map((entry) => ({
+      ...entry,
+      timestamp: entry.timestamp.toISOString(),
+    }));
+  };
+
+  const upsertSessionState = async () => {
+    if (!sessionId) return;
+
+    const existing = sessionsRef.current.find((session) => session.id === sessionId);
+    const now = new Date().toISOString();
+    const title = existing?.title || currentTaskTitle || `Session ${new Date().toLocaleString()}`;
+
+    const record: SessionRecord = {
+      id: sessionId,
+      title,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      workspacePath: workspacePath || existing?.workspacePath || '',
+      logs: serializeLogs(logs),
+      pendingDiffs,
+      agentState,
+    };
+
+    await sessionStore.upsert(record);
+    setSessions((prev) => {
+      const next = [...prev];
+      const index = next.findIndex((session) => session.id === sessionId);
+      if (index >= 0) {
+        next[index] = record;
+      } else {
+        next.unshift(record);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    void upsertSessionState();
+  }, [sessionId, logs, pendingDiffs, workspacePath, agentState, currentTaskTitle]);
+
+  const handleResumeSession = (record: SessionRecord) => {
+    if (record.workspacePath) {
+      setWorkspacePath(record.workspacePath);
+    }
+    setCurrentTaskTitle(record.title);
+    loadSessionSnapshot(record);
+    resumeSession(record.id);
+  };
+
+  const handleExportSession = async (record: SessionRecord) => {
+    await sessionStore.export(record);
+  };
+
+  const handleImportSession = async () => {
+    const imported = await sessionStore.import();
+    if (!imported) return;
+
+    const record = imported as SessionRecord;
+    if (!record.id) {
+      record.id = crypto.randomUUID();
+    }
+    if (!record.createdAt) {
+      record.createdAt = new Date().toISOString();
+    }
+    record.updatedAt = new Date().toISOString();
+
+    await sessionStore.upsert(record);
+    setSessions((prev) => [record, ...prev.filter((session) => session.id !== record.id)]);
   };
 
   // Extract workspace name for display
@@ -123,8 +219,8 @@ function App() {
           <button
             onClick={() => setShowReasoningOutput(!showReasoningOutput)}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${showReasoningOutput
-                ? 'bg-kimi-purple/20 text-kimi-purple border border-kimi-purple/30'
-                : 'bg-kimi-gray text-kimi-text-secondary border border-kimi-border hover:bg-kimi-light-gray'
+              ? 'bg-kimi-purple/20 text-kimi-purple border border-kimi-purple/30'
+              : 'bg-kimi-gray text-kimi-text-secondary border border-kimi-border hover:bg-kimi-light-gray'
               }`}
             title={showReasoningOutput ? 'Hide agent reasoning' : 'Show agent reasoning'}
           >
@@ -144,16 +240,26 @@ function App() {
       <main className="flex-1 flex overflow-hidden">
         {/* Left: Task/Chat Pane */}
         <div className="w-[380px] min-w-[320px] border-r border-kimi-border flex flex-col bg-kimi-darker/30">
-          <TaskPane
-            isRunning={isRunning}
-            isConnected={isConnected}
-            logs={logs}
-            showReasoning={showReasoningOutput}
-            onStartTask={handleStartTask}
-            onStopTask={stopTask}
-            onContinue={continueTask}
-            onClearLogs={clearLogs}
+          <SessionHistory
+            sessions={sessions}
+            searchValue={sessionSearch}
+            onSearchChange={setSessionSearch}
+            onResume={handleResumeSession}
+            onExport={handleExportSession}
+            onImport={handleImportSession}
           />
+          <div className="flex-1 min-h-0">
+            <TaskPane
+              isRunning={isRunning}
+              isConnected={isConnected}
+              logs={logs}
+              showReasoning={showReasoningOutput}
+              onStartTask={handleStartTask}
+              onStopTask={stopTask}
+              onContinue={continueTask}
+              onClearLogs={clearLogs}
+            />
+          </div>
         </div>
 
         {/* Center: Diff Review Pane */}

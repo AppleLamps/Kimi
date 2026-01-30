@@ -130,6 +130,7 @@ export function createBackendServer(
 
       socket.emit('session:resumed', { sessionId: requestedId });
       socket.emit('session:diffs', { diffs: currentAgent.getPendingDiffs() });
+      socket.emit('session:state', { state: currentAgent.getSerializableState() });
 
       socket.emit('agent:update', {
         type: 'info',
@@ -139,6 +140,27 @@ export function createBackendServer(
             : 'Session resumed.',
         },
       });
+    });
+
+    socket.on('session:state:request', (data: { sessionId?: string }) => {
+      const requestedId = data?.sessionId ?? sessionId;
+      if (!requestedId) {
+        socket.emit('session:expired', {
+          message: 'No session to resume. Please start a new task.',
+        });
+        return;
+      }
+
+      const existingAgent = activeSessions.get(requestedId);
+      if (!existingAgent) {
+        socket.emit('session:expired', {
+          sessionId: requestedId,
+          message: 'Session expired. Please start a new task.',
+        });
+        return;
+      }
+
+      socket.emit('session:state', { state: existingAgent.getSerializableState() });
     });
 
     socket.on('task:start', async (data: TaskRequest) => {
@@ -184,6 +206,7 @@ export function createBackendServer(
       }
 
       socket.emit('session:started', { sessionId });
+      socket.emit('session:state', { state: currentAgent.getSerializableState() });
 
       try {
         await currentAgent.start();

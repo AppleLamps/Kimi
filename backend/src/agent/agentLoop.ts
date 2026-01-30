@@ -52,6 +52,26 @@ export class AgentLoop {
     return this.state;
   }
 
+  getSerializableState(): {
+    taskId: string;
+    task: string;
+    messages: Message[];
+    pendingDiffs: DiffResult[];
+    isRunning: boolean;
+    isComplete: boolean;
+    workspacePath: string;
+  } {
+    return {
+      taskId: this.state.taskId,
+      task: this.state.task,
+      messages: this.state.messages,
+      pendingDiffs: this.toolExecutor.getPendingDiffs(),
+      isRunning: this.state.isRunning,
+      isComplete: this.state.isComplete,
+      workspacePath: this.state.workspacePath,
+    };
+  }
+
   getToolExecutor(): ToolExecutor {
     return this.toolExecutor;
   }

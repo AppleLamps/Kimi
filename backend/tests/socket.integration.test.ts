@@ -61,6 +61,18 @@ class FakeAgentLoop {
     getPendingDiffs() {
         return [];
     }
+
+    getSerializableState() {
+        return {
+            taskId: this.state.taskId,
+            task: this.state.task,
+            messages: [],
+            pendingDiffs: [],
+            isRunning: this.state.isRunning,
+            isComplete: this.state.isComplete,
+            workspacePath: this.state.workspacePath,
+        };
+    }
 }
 
 describe('Socket.IO integration', () => {

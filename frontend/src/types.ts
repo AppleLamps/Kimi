@@ -51,3 +51,46 @@ export interface WorkspaceInfo {
   isGitRepo: boolean;
   fileCount: number;
 }
+
+export interface AgentMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+}
+
+export interface PersistedAgentState {
+  taskId: string;
+  task: string;
+  messages: AgentMessage[];
+  pendingDiffs: DiffResult[];
+  isRunning: boolean;
+  isComplete: boolean;
+  workspacePath: string;
+}
+
+export interface PersistedLogEntry {
+  id: string;
+  type: LogEntry['type'];
+  timestamp: string;
+  content: string;
+  data?: unknown;
+}
+
+export interface SessionRecord {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  workspacePath: string;
+  logs: PersistedLogEntry[];
+  pendingDiffs: DiffResult[];
+  agentState?: PersistedAgentState | null;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { AgentUpdate, DiffResult, LogEntry } from '../types';
+import type { AgentUpdate, DiffResult, LogEntry, PersistedAgentState, PersistedLogEntry, SessionRecord } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 const BACKEND_URL = 'http://localhost:3001';
@@ -12,9 +12,13 @@ interface UseSocketReturn {
   connectionStatus: 'connected' | 'disconnected' | 'reconnecting' | 'failed';
   reconnectAttempt: number;
   connectionMessage: string | null;
+  agentState: PersistedAgentState | null;
   logs: LogEntry[];
   pendingDiffs: DiffResult[];
   startTask: (task: string, workspacePath: string) => void;
+  resumeSession: (sessionId: string) => void;
+  requestSessionState: () => void;
+  loadSessionSnapshot: (record: SessionRecord) => void;
   stopTask: () => void;
   continueTask: (message: string) => void;
   applyDiff: (diffId: string) => void;
@@ -25,12 +29,14 @@ interface UseSocketReturn {
 export function useSocket(): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const stateRequestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting' | 'failed'>('disconnected');
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [agentState, setAgentState] = useState<PersistedAgentState | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [pendingDiffs, setPendingDiffs] = useState<DiffResult[]>([]);
 
@@ -43,6 +49,36 @@ export function useSocket(): UseSocketReturn {
       data,
     };
     setLogs((prev) => [...prev, entry]);
+  }, []);
+
+  const requestSessionState = useCallback(() => {
+    const sessionToRequest = sessionIdRef.current;
+    if (!socketRef.current || !sessionToRequest) return;
+    socketRef.current.emit('session:state:request', { sessionId: sessionToRequest });
+  }, []);
+
+  const scheduleSessionStateRequest = useCallback(() => {
+    if (!sessionIdRef.current) return;
+    if (stateRequestTimeoutRef.current) {
+      clearTimeout(stateRequestTimeoutRef.current);
+    }
+    stateRequestTimeoutRef.current = setTimeout(() => {
+      requestSessionState();
+    }, 500);
+  }, [requestSessionState]);
+
+  const loadSessionSnapshot = useCallback((record: SessionRecord) => {
+    setSessionId(record.id);
+    sessionIdRef.current = record.id;
+    setPendingDiffs(record.pendingDiffs || []);
+    setAgentState(record.agentState || null);
+    setIsRunning(record.agentState?.isRunning ?? false);
+
+    const restoredLogs = (record.logs || []).map((entry: PersistedLogEntry) => ({
+      ...entry,
+      timestamp: new Date(entry.timestamp),
+    }));
+    setLogs(restoredLogs as LogEntry[]);
   }, []);
 
   useEffect(() => {
@@ -107,16 +143,23 @@ export function useSocket(): UseSocketReturn {
       sessionIdRef.current = data.sessionId;
       setIsRunning(true);
       addLog('info', `Session started: ${data.sessionId}`);
+      requestSessionState();
     });
 
     socket.on('session:resumed', (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
       sessionIdRef.current = data.sessionId;
       addLog('info', `Session resumed: ${data.sessionId}`);
+      requestSessionState();
     });
 
     socket.on('session:diffs', (data: { diffs: DiffResult[] }) => {
       setPendingDiffs(data.diffs || []);
+      scheduleSessionStateRequest();
+    });
+
+    socket.on('session:state', (data: { state: PersistedAgentState }) => {
+      setAgentState(data.state);
     });
 
     socket.on('session:expired', (data: { message?: string }) => {
@@ -173,28 +216,42 @@ export function useSocket(): UseSocketReturn {
           break;
         }
       }
+
+      scheduleSessionStateRequest();
     });
 
     socket.on('diff:applied', (data: { diffId: string; path: string }) => {
       setPendingDiffs((prev) => prev.filter((d) => d.id !== data.diffId));
       addLog('info', `Diff applied: ${data.path}`);
+      scheduleSessionStateRequest();
     });
 
     socket.on('diff:rejected', (data: { diffId: string; path: string }) => {
       setPendingDiffs((prev) => prev.filter((d) => d.id !== data.diffId));
       addLog('info', `Diff rejected: ${data.path}`);
+      scheduleSessionStateRequest();
     });
 
     return () => {
+      if (stateRequestTimeoutRef.current) {
+        clearTimeout(stateRequestTimeoutRef.current);
+      }
       socket.disconnect();
     };
-  }, [addLog]);
+  }, [addLog, requestSessionState, scheduleSessionStateRequest]);
 
   const startTask = useCallback((task: string, workspacePath: string) => {
     if (socketRef.current) {
       setPendingDiffs([]);
       socketRef.current.emit('task:start', { task, workspacePath });
     }
+  }, []);
+
+  const resumeSession = useCallback((targetSessionId: string) => {
+    if (!socketRef.current) return;
+    sessionIdRef.current = targetSessionId;
+    setSessionId(targetSessionId);
+    socketRef.current.emit('session:resume', { sessionId: targetSessionId });
   }, []);
 
   const stopTask = useCallback(() => {
@@ -234,9 +291,13 @@ export function useSocket(): UseSocketReturn {
     connectionStatus,
     reconnectAttempt,
     connectionMessage,
+    agentState,
     logs,
     pendingDiffs,
     startTask,
+    resumeSession,
+    requestSessionState,
+    loadSessionSnapshot,
     stopTask,
     continueTask,
     applyDiff,
