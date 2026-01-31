@@ -20,6 +20,13 @@ export const SYSTEM_PROMPT = `You are an autonomous coding agent operating insid
 - \`read_file(path)\`: Read the contents of a file
 - \`propose_file_change(path, new_content)\`: Propose a change to a file (creates a diff for user approval)
 - \`run_command(command)\`: Run a shell command and get stdout/stderr/exit code
+- `search_files(query, path ?, is_regex ?, case_sensitive ?, include ?, exclude ?, max_results ?, max_bytes_per_file ?)`: Full-text search across workspace files
+- `git_operations(action, args ?)`: Git status/diff/commit/branch/checkout/pull/push operations
+- `web_search(query, num_results ?)`: Search the web via configured provider
+- `create_directory(path, recursive ?)`: Create a new directory (defaults to recursive)
+- `delete_file(path)`: Propose deleting a file (requires user approval)
+- `move_file(from, to)`: Propose moving/renaming a file (requires user approval)
+- `run_tests(scope ?, command ?)`: Run tests (backend/frontend/both/e2e or custom command)
 
 ## Workflow
 
@@ -109,6 +116,125 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'search_files',
+      description: 'Search for text across workspace files with optional glob filters and limits.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'Search query text or regex pattern' },
+          path: { type: 'string', description: 'Optional base path for the search' },
+          is_regex: { type: 'boolean', description: 'Treat query as regex pattern' },
+          case_sensitive: { type: 'boolean', description: 'Case-sensitive search' },
+          include: { type: 'array', items: { type: 'string' }, description: 'Glob patterns to include' },
+          exclude: { type: 'array', items: { type: 'string' }, description: 'Glob patterns to exclude' },
+          max_results: { type: 'number', description: 'Maximum number of matches to return' },
+          max_bytes_per_file: { type: 'number', description: 'Skip files larger than this size (bytes)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'git_operations',
+      description: 'Run git status, diff, commit, branch, checkout, pull, or push operations.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          action: {
+            type: 'string',
+            description: 'Git action to perform (status, diff, commit, branch, checkout, pull, push)',
+          },
+          args: {
+            type: 'object',
+            description: 'Optional action arguments (e.g., message, files, branch)',
+          },
+        },
+        required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'web_search',
+      description: 'Search the web via configured provider. Returns results with titles, urls, and snippets when available.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+          num_results: { type: 'number', description: 'Number of results to return' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_directory',
+      description: 'Create a directory (recursively by default).',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string', description: 'Directory path to create' },
+          recursive: { type: 'boolean', description: 'Create parent directories if needed' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_file',
+      description: 'Propose deleting a file. Requires user approval before removal.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string', description: 'File path to delete' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'move_file',
+      description: 'Propose moving/renaming a file. Requires user approval before rename.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          from: { type: 'string', description: 'Source file path' },
+          to: { type: 'string', description: 'Destination file path' },
+        },
+        required: ['from', 'to'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'run_tests',
+      description: 'Run backend/frontend/e2e tests or a custom command.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          scope: {
+            type: 'string',
+            description: 'Test scope: backend, frontend, both, or e2e',
+          },
+          command: { type: 'string', description: 'Custom command to run tests' },
+        },
+        required: [],
       },
     },
   },

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { AgentUpdate, DiffResult, LogEntry, LogSeverity, ModelConfig, PersistedAgentState, PersistedLogEntry, SessionRecord } from '../types';
+import type { AgentUpdate, DiffResult, GitOperationRequest, GitOperationResult, LogEntry, LogSeverity, ModelConfig, PersistedAgentState, PersistedLogEntry, ProgressData, SessionRecord, TokenUsage } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { frontendConfig } from '../config';
 
-const BACKEND_URL = 'http://localhost:3001';
+const BACKEND_URL = frontendConfig.backendUrl;
+const DELTA_FLUSH_INTERVAL_MS = frontendConfig.socket.deltaFlushIntervalMs;
 
 interface UseSocketReturn {
   isConnected: boolean;
@@ -12,9 +14,11 @@ interface UseSocketReturn {
   connectionStatus: 'connected' | 'disconnected' | 'reconnecting' | 'failed';
   reconnectAttempt: number;
   connectionMessage: string | null;
+  gitStatus: GitStatus;
   agentState: PersistedAgentState | null;
   logs: LogEntry[];
   pendingDiffs: DiffResult[];
+  progress: ProgressData | null;
   startTask: (task: string, workspacePath: string, modelConfig: ModelConfig) => void;
   resumeSession: (sessionId: string) => void;
   requestSessionState: () => void;
@@ -23,22 +27,36 @@ interface UseSocketReturn {
   continueTask: (message: string) => void;
   applyDiff: (diffId: string) => void;
   rejectDiff: (diffId: string) => void;
+  applyAllDiffs: () => void;
+  rejectAllDiffs: () => void;
   clearLogs: () => void;
+  gitPull: (request: GitOperationRequest) => void;
+  gitPush: (request: GitOperationRequest) => void;
+}
+
+interface GitStatus {
+  state: 'idle' | 'running' | 'success' | 'error';
+  message: string | null;
+  action?: 'pull' | 'push';
 }
 
 export function useSocket(): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const stateRequestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deltaBufferRef = useRef<Map<string, string>>(new Map());
+  const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting' | 'failed'>('disconnected');
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [gitStatus, setGitStatus] = useState<GitStatus>({ state: 'idle', message: null });
   const [agentState, setAgentState] = useState<PersistedAgentState | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [pendingDiffs, setPendingDiffs] = useState<DiffResult[]>([]);
+  const [progress, setProgress] = useState<ProgressData | null>(null);
 
   const getSeverityForType = useCallback((type: LogEntry['type']): LogSeverity => {
     switch (type) {
@@ -69,6 +87,74 @@ export function useSocket(): UseSocketReturn {
     setLogs((prev) => [...prev, entry]);
   }, [getSeverityForType]);
 
+  const flushBufferedDeltas = useCallback(() => {
+    if (deltaBufferRef.current.size === 0) return;
+
+    const buffered = new Map(deltaBufferRef.current);
+    deltaBufferRef.current.clear();
+
+    setLogs((prev) => {
+      const next = [...prev];
+
+      buffered.forEach((delta, messageId) => {
+        const index = next.findIndex((entry) => entry.id === messageId);
+        if (index === -1) {
+          next.push({
+            id: messageId,
+            type: 'message',
+            severity: getSeverityForType('message'),
+            timestamp: new Date(),
+            content: delta,
+          });
+        } else {
+          const existing = next[index];
+          next[index] = {
+            ...existing,
+            content: existing.content + delta,
+          };
+        }
+      });
+
+      return next;
+    });
+  }, [getSeverityForType]);
+
+  const scheduleDeltaFlush = useCallback(() => {
+    if (deltaFlushTimerRef.current) return;
+    deltaFlushTimerRef.current = setTimeout(() => {
+      deltaFlushTimerRef.current = null;
+      flushBufferedDeltas();
+    }, DELTA_FLUSH_INTERVAL_MS);
+  }, [flushBufferedDeltas]);
+
+  const upsertMessageLog = useCallback((messageId: string, content: string, usage?: TokenUsage, replaceContent: boolean = false) => {
+    setLogs((prev) => {
+      const index = prev.findIndex((entry) => entry.id === messageId);
+      if (index === -1) {
+        return [
+          ...prev,
+          {
+            id: messageId,
+            type: 'message',
+            severity: getSeverityForType('message'),
+            timestamp: new Date(),
+            content,
+            data: usage ? { usage } : undefined,
+          },
+        ];
+      }
+
+      const next = [...prev];
+      const existing = next[index];
+      next[index] = {
+        ...existing,
+        content: replaceContent ? content : existing.content + content,
+        data: usage ? { usage } : existing.data,
+      };
+      return next;
+    });
+  }, [getSeverityForType]);
+
   const requestSessionState = useCallback(() => {
     const sessionToRequest = sessionIdRef.current;
     if (!socketRef.current || !sessionToRequest) return;
@@ -82,7 +168,7 @@ export function useSocket(): UseSocketReturn {
     }
     stateRequestTimeoutRef.current = setTimeout(() => {
       requestSessionState();
-    }, 500);
+    }, frontendConfig.socket.stateRequestDelayMs);
   }, [requestSessionState]);
 
   const loadSessionSnapshot = useCallback((record: SessionRecord) => {
@@ -103,10 +189,10 @@ export function useSocket(): UseSocketReturn {
   useEffect(() => {
     const socket = io(BACKEND_URL, {
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 5000,
-      randomizationFactor: 0.5,
+      reconnectionAttempts: frontendConfig.socket.reconnectAttempts,
+      reconnectionDelay: frontendConfig.socket.reconnectDelayMs,
+      reconnectionDelayMax: frontendConfig.socket.reconnectDelayMaxMs,
+      randomizationFactor: frontendConfig.socket.reconnectRandomizationFactor,
     });
 
     socketRef.current = socket;
@@ -161,6 +247,7 @@ export function useSocket(): UseSocketReturn {
       setSessionId(data.sessionId);
       sessionIdRef.current = data.sessionId;
       setIsRunning(true);
+      setProgress(null);
       addLog('info', `Session started: ${data.sessionId}`);
       requestSessionState();
     });
@@ -168,6 +255,7 @@ export function useSocket(): UseSocketReturn {
     socket.on('session:resumed', (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
       sessionIdRef.current = data.sessionId;
+      setProgress(null);
       addLog('info', `Session resumed: ${data.sessionId}`);
       requestSessionState();
     });
@@ -185,6 +273,7 @@ export function useSocket(): UseSocketReturn {
       setSessionId(null);
       sessionIdRef.current = null;
       setIsRunning(false);
+      setProgress(null);
       const message = data?.message || 'Session expired. Please start a new task.';
       setConnectionMessage(message);
       addLog('error', message);
@@ -214,24 +303,45 @@ export function useSocket(): UseSocketReturn {
           break;
         }
         case 'message': {
-          const data = update.data as { content: string };
-          addLog('message', data.content);
+          const data = update.data as { content: string; usage?: TokenUsage; messageId?: string | null };
+          if (data.messageId) {
+            if (deltaBufferRef.current.has(data.messageId)) {
+              deltaBufferRef.current.delete(data.messageId);
+            }
+            upsertMessageLog(data.messageId, data.content, data.usage, true);
+          } else {
+            addLog('message', data.content, { usage: data.usage });
+          }
+          break;
+        }
+        case 'message_delta': {
+          const data = update.data as { messageId: string; delta: string };
+          const existing = deltaBufferRef.current.get(data.messageId) ?? '';
+          deltaBufferRef.current.set(data.messageId, existing + data.delta);
+          scheduleDeltaFlush();
           break;
         }
         case 'complete': {
           const data = update.data as { message: string };
           setIsRunning(false);
+          setProgress({ current: 100, total: 100, stage: 'complete' });
           addLog('info', data.message);
           break;
         }
         case 'error': {
           const data = update.data as { message: string };
+          setProgress(null);
           addLog('error', data.message);
           break;
         }
         case 'info': {
           const data = update.data as { message: string };
           addLog('info', data.message);
+          break;
+        }
+        case 'progress': {
+          const data = update.data as ProgressData;
+          setProgress(data);
           break;
         }
       }
@@ -251,13 +361,37 @@ export function useSocket(): UseSocketReturn {
       scheduleSessionStateRequest();
     });
 
+    socket.on('git:started', (data: { action: 'pull' | 'push' }) => {
+      setGitStatus({ state: 'running', action: data.action, message: `Running git ${data.action}...` });
+    });
+
+    socket.on('git:result', (data: GitOperationResult) => {
+      setGitStatus({ state: 'success', action: data.action, message: `Git ${data.action} completed.` });
+      addLog('info', `Git ${data.action} completed.`);
+      setTimeout(() => {
+        setGitStatus({ state: 'idle', message: null });
+      }, frontendConfig.socket.gitStatusResetMs);
+    });
+
+    socket.on('git:error', (data: { action: 'pull' | 'push'; message: string }) => {
+      setGitStatus({ state: 'error', action: data.action, message: data.message });
+      addLog('error', `Git ${data.action} failed: ${data.message}`);
+      setTimeout(() => {
+        setGitStatus({ state: 'idle', message: null });
+      }, frontendConfig.socket.gitErrorResetMs);
+    });
+
     return () => {
       if (stateRequestTimeoutRef.current) {
         clearTimeout(stateRequestTimeoutRef.current);
       }
+      if (deltaFlushTimerRef.current) {
+        clearTimeout(deltaFlushTimerRef.current);
+      }
+      flushBufferedDeltas();
       socket.disconnect();
     };
-  }, [addLog, requestSessionState, scheduleSessionStateRequest]);
+  }, [addLog, flushBufferedDeltas, requestSessionState, scheduleDeltaFlush, scheduleSessionStateRequest, upsertMessageLog]);
 
   const startTask = useCallback((task: string, workspacePath: string, modelConfig: ModelConfig) => {
     if (socketRef.current) {
@@ -277,6 +411,7 @@ export function useSocket(): UseSocketReturn {
     if (socketRef.current) {
       socketRef.current.emit('task:stop');
       setIsRunning(false);
+      setProgress(null);
     }
   }, []);
 
@@ -299,8 +434,32 @@ export function useSocket(): UseSocketReturn {
     }
   }, []);
 
+  const applyAllDiffs = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('diff:apply_all');
+    }
+  }, []);
+
+  const rejectAllDiffs = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('diff:reject_all');
+    }
+  }, []);
+
   const clearLogs = useCallback(() => {
     setLogs([]);
+  }, []);
+
+  const gitPull = useCallback((request: GitOperationRequest) => {
+    if (socketRef.current) {
+      socketRef.current.emit('git:pull', request);
+    }
+  }, []);
+
+  const gitPush = useCallback((request: GitOperationRequest) => {
+    if (socketRef.current) {
+      socketRef.current.emit('git:push', request);
+    }
   }, []);
 
   return {
@@ -310,9 +469,11 @@ export function useSocket(): UseSocketReturn {
     connectionStatus,
     reconnectAttempt,
     connectionMessage,
+    gitStatus,
     agentState,
     logs,
     pendingDiffs,
+    progress,
     startTask,
     resumeSession,
     requestSessionState,
@@ -321,6 +482,10 @@ export function useSocket(): UseSocketReturn {
     continueTask,
     applyDiff,
     rejectDiff,
+    applyAllDiffs,
+    rejectAllDiffs,
     clearLogs,
+    gitPull,
+    gitPush,
   };
 }

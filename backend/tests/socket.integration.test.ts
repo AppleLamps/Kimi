@@ -59,6 +59,14 @@ class FakeAgentLoop {
         return null;
     }
 
+    async applyAllDiffs() {
+        return [];
+    }
+
+    rejectAllDiffs() {
+        return [];
+    }
+
     getPendingDiffs() {
         return [];
     }

@@ -1,6 +1,12 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, StopCircle, Trash2, Loader2, MessageSquare, Bot, User, Brain, AlertTriangle, Info, Sparkles } from 'lucide-react';
-import type { LogEntry } from '../types';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Send, StopCircle, Trash2, Loader2, MessageSquare, Bot, User, Brain, AlertTriangle, Info, Sparkles, Copy, Pencil, RotateCcw, Check, X } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import type { LogEntry, TokenUsage } from '../types';
+
+const CHAT_PAGE_SIZE = 40;
+const SCROLL_BOTTOM_THRESHOLD = 80;
 
 interface TaskPaneProps {
   isRunning: boolean;
@@ -25,7 +31,15 @@ export default function TaskPane({
 }: TaskPaneProps) {
   const [input, setInput] = useState('');
   const [hasStarted, setHasStarted] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [editedMessages, setEditedMessages] = useState<Record<string, string>>({});
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<Record<string, boolean>>({});
+  const [chatPage, setChatPage] = useState(1);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+  const pendingScrollRef = useRef<{ prevScrollHeight: number; prevScrollTop: number } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Filter logs to show in chat
@@ -34,10 +48,51 @@ export default function TaskPane({
     return ['message', 'error', 'info', 'thinking', 'user'].includes(log.type);
   });
 
-  // Auto-scroll to bottom
+  const visibleChatLogs = useMemo(() => {
+    return chatLogs.filter((log) => !hiddenMessageIds[log.id]);
+  }, [chatLogs, hiddenMessageIds]);
+
+  const pagedChatLogs = useMemo(() => {
+    const total = visibleChatLogs.length;
+    const visibleCount = Math.min(total, chatPage * CHAT_PAGE_SIZE);
+    return visibleChatLogs.slice(Math.max(0, total - visibleCount));
+  }, [visibleChatLogs, chatPage]);
+
+  const remainingChatCount = Math.max(0, visibleChatLogs.length - pagedChatLogs.length);
+
+  const lastUserMessage = useMemo(() => {
+    const lastUser = [...chatLogs].reverse().find((log) => log.type === 'user');
+    if (!lastUser) return '';
+    return editedMessages[lastUser.id] ?? lastUser.content;
+  }, [chatLogs, editedMessages]);
+
   useEffect(() => {
+    if (chatLogs.length > 0 && !hasStarted) {
+      setHasStarted(true);
+    }
+  }, [chatLogs, hasStarted]);
+
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    isAtBottomRef.current = distanceFromBottom < SCROLL_BOTTOM_THRESHOLD;
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingScrollRef.current;
+    const container = messagesContainerRef.current;
+    if (!pending || !container) return;
+    const nextScrollTop = container.scrollHeight - pending.prevScrollHeight + pending.prevScrollTop;
+    container.scrollTop = nextScrollTop;
+    pendingScrollRef.current = null;
+  }, [pagedChatLogs]);
+
+  // Auto-scroll to bottom (only when user is at bottom)
+  useEffect(() => {
+    if (!isAtBottomRef.current || pendingScrollRef.current) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatLogs]);
+  }, [pagedChatLogs]);
 
   // Auto-resize textarea
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -66,6 +121,12 @@ export default function TaskPane({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit(e);
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -75,6 +136,23 @@ export default function TaskPane({
   const handleClear = () => {
     onClearLogs();
     setHasStarted(false);
+    setEditedMessages({});
+    setHiddenMessageIds({});
+    setEditingMessageId(null);
+    setEditDraft('');
+    setChatPage(1);
+    isAtBottomRef.current = true;
+  };
+
+  const handleLoadOlderMessages = () => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      pendingScrollRef.current = {
+        prevScrollHeight: container.scrollHeight,
+        prevScrollTop: container.scrollTop,
+      };
+    }
+    setChatPage((prev) => prev + 1);
   };
 
   const getMessageIcon = (type: string) => {
@@ -122,6 +200,68 @@ export default function TaskPane({
     }
   };
 
+  const handleCopyMessage = async (content: string) => {
+    await navigator.clipboard.writeText(content);
+  };
+
+  const handleStartEdit = (log: LogEntry) => {
+    setEditingMessageId(log.id);
+    setEditDraft(editedMessages[log.id] ?? log.content);
+  };
+
+  const handleSaveEdit = (logId: string) => {
+    if (!editDraft.trim()) return;
+    setEditedMessages((prev) => ({
+      ...prev,
+      [logId]: editDraft.trim(),
+    }));
+    setEditingMessageId(null);
+    setEditDraft('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditDraft('');
+  };
+
+  const handleRegenerate = (logId: string) => {
+    if (!lastUserMessage) return;
+    setHiddenMessageIds((prev) => ({
+      ...prev,
+      [logId]: true,
+    }));
+    onContinue(lastUserMessage);
+  };
+
+  const renderMarkdown = (content: string, isThinking: boolean) => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      className={`task-markdown ${isThinking ? 'text-kimi-text-secondary italic' : 'text-kimi-text'}`}
+      components={{
+        code({ inline, className, children, ...props }) {
+          if (inline) {
+            return (
+              <code className="task-code-inline" {...props}>
+                {children}
+              </code>
+            );
+          }
+
+          return (
+            <pre className="task-code-block">
+              <code className={className} {...props}>
+                {children}
+              </code>
+            </pre>
+          );
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -140,8 +280,12 @@ export default function TaskPane({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-container">
-        {chatLogs.length === 0 ? (
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        className="flex-1 overflow-y-auto p-4 space-y-4 scroll-container"
+      >
+        {visibleChatLogs.length === 0 ? (
           <div className="empty-state mt-8">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-kimi-blue/20 to-kimi-purple/20 flex items-center justify-center mb-6">
               <Sparkles size={36} className="text-kimi-blue" />
@@ -172,34 +316,114 @@ export default function TaskPane({
             </div>
           </div>
         ) : (
-          chatLogs.map((log, index) => (
-            <div
-              key={log.id}
-              className={`animate-slide-up ${getMessageStyle(log.type)} p-4`}
-              style={{ animationDelay: `${Math.min(index * 0.05, 0.3)}s` }}
-            >
-              <div className="flex items-start gap-3">
-                <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center ${getIconContainerStyle(log.type)}`}>
-                  {getMessageIcon(log.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-medium text-kimi-text-secondary">
-                      {log.type === 'user' ? 'You' : log.type === 'thinking' ? 'Thinking' : 'Kimi'}
-                    </span>
-                    <span className="text-xs text-kimi-text-muted">
-                      {log.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className={`text-sm whitespace-pre-wrap break-words ${
-                    log.type === 'thinking' ? 'text-kimi-text-secondary italic' : 'text-kimi-text'
-                  }`}>
-                    {log.content}
-                  </p>
-                </div>
+          <>
+            {remainingChatCount > 0 && (
+              <div className="flex justify-center">
+                <button
+                  onClick={handleLoadOlderMessages}
+                  className="btn-ghost px-3 py-1 text-[10px] rounded-full"
+                  title="Load earlier messages"
+                >
+                  Load earlier {Math.min(CHAT_PAGE_SIZE, remainingChatCount)} messages
+                </button>
               </div>
-            </div>
-          ))
+            )}
+            {pagedChatLogs.map((log, index) => {
+              const displayContent = editedMessages[log.id] ?? log.content;
+              const isEditing = editingMessageId === log.id;
+              const isAssistant = log.type === 'message';
+              const isUser = log.type === 'user';
+              const lastAssistantMessage = [...visibleChatLogs].reverse().find((entry) => entry.type === 'message');
+              const isLastAssistant = lastAssistantMessage?.id === log.id;
+              const usage = (log.data as { usage?: TokenUsage } | undefined)?.usage;
+
+              return (
+                <div
+                  key={log.id}
+                  className={`animate-slide-up ${getMessageStyle(log.type)} p-4`}
+                  style={{ animationDelay: `${Math.min(index * 0.05, 0.3)}s` }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center ${getIconContainerStyle(log.type)}`}>
+                      {getMessageIcon(log.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-kimi-text-secondary">
+                            {log.type === 'user' ? 'You' : log.type === 'thinking' ? 'Thinking' : 'Kimi'}
+                          </span>
+                          <span className="text-xs text-kimi-text-muted">
+                            {log.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {isAssistant && usage && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border border-kimi-border text-kimi-text-muted">
+                              {usage.totalTokens} tokens
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleCopyMessage(displayContent)}
+                            className="p-1 rounded hover:bg-kimi-light-gray/60 transition-colors"
+                            title="Copy message"
+                          >
+                            <Copy size={12} className="text-kimi-text-muted" />
+                          </button>
+                          {isUser && !isEditing && (
+                            <button
+                              onClick={() => handleStartEdit(log)}
+                              className="p-1 rounded hover:bg-kimi-light-gray/60 transition-colors"
+                              title="Edit message"
+                            >
+                              <Pencil size={12} className="text-kimi-text-muted" />
+                            </button>
+                          )}
+                          {isAssistant && isLastAssistant && (
+                            <button
+                              onClick={() => handleRegenerate(log.id)}
+                              className="p-1 rounded hover:bg-kimi-light-gray/60 transition-colors"
+                              title="Regenerate response"
+                            >
+                              <RotateCcw size={12} className="text-kimi-text-muted" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={editDraft}
+                            onChange={(event) => setEditDraft(event.target.value)}
+                            rows={3}
+                            className="w-full bg-kimi-darker border border-kimi-border rounded-lg px-3 py-2 text-xs text-kimi-text-secondary focus:outline-none focus:border-kimi-border-light"
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={handleCancelEdit}
+                              className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-md text-kimi-text-muted hover:text-kimi-text"
+                            >
+                              <X size={12} />
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleSaveEdit(log.id)}
+                              className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-md bg-kimi-green/20 text-kimi-green border border-kimi-green/30"
+                            >
+                              <Check size={12} />
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        renderMarkdown(displayContent, log.type === 'thinking')
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
         )}
 
         {/* Typing indicator when running */}
@@ -252,6 +476,8 @@ export default function TaskPane({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs text-kimi-text-muted">
               <kbd className="kbd">Enter</kbd>
+              <span>or</span>
+              <kbd className="kbd">Cmd/Ctrl + Enter</kbd>
               <span>to send</span>
               <span className="text-kimi-border">|</span>
               <kbd className="kbd">Shift + Enter</kbd>

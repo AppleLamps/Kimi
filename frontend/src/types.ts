@@ -1,13 +1,25 @@
 export interface DiffResult {
   id: string;
   path: string;
-  original: string;
-  proposed: string;
+  original?: string;
+  proposed?: string;
   diff: string;
+  operation?: 'create' | 'modify' | 'delete' | 'move';
+  oldPath?: string;
+  newPath?: string;
+}
+
+export interface DiffComment {
+  id: string;
+  diffId: string;
+  side: 'original' | 'proposed';
+  line: number;
+  text: string;
+  createdAt: string;
 }
 
 export interface AgentUpdate {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'complete' | 'error' | 'info';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress';
   data: unknown;
 }
 
@@ -27,8 +39,15 @@ export interface ToolResultData {
   result: string;
 }
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface MessageData {
   content: string;
+  usage?: TokenUsage;
 }
 
 export interface ErrorData {
@@ -37,6 +56,12 @@ export interface ErrorData {
 
 export interface CompleteData {
   message: string;
+}
+
+export interface ProgressData {
+  current: number;
+  total: number;
+  stage?: string;
 }
 
 export interface LogEntry {
@@ -96,6 +121,17 @@ export interface PersistedLogEntry {
   data?: unknown;
 }
 
+export interface GitOperationRequest {
+  workspacePath: string;
+  remote?: string;
+  branch?: string;
+}
+
+export interface GitOperationResult {
+  action: 'pull' | 'push';
+  result: unknown;
+}
+
 export interface SessionRecord {
   id: string;
   title: string;
@@ -104,6 +140,7 @@ export interface SessionRecord {
   workspacePath: string;
   logs: PersistedLogEntry[];
   pendingDiffs: DiffResult[];
+  diffComments?: DiffComment[];
   agentState?: PersistedAgentState | null;
   modelConfig?: ModelConfig | null;
 }

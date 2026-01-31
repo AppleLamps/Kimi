@@ -29,6 +29,47 @@ body {
   background: var(--color-bg-primary);
 }
 
+body.theme-light {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+body.theme-light .bg-kimi-dark {
+  background-color: #f8fafc;
+}
+
+body.theme-light .bg-kimi-darker {
+  background-color: #f1f5f9;
+}
+
+body.theme-light .bg-kimi-gray {
+  background-color: #f8fafc;
+}
+
+body.theme-light .bg-kimi-light-gray {
+  background-color: #e2e8f0;
+}
+
+body.theme-light .border-kimi-border {
+  border-color: #e2e8f0;
+}
+
+body.theme-light .border-kimi-border-light {
+  border-color: #cbd5f5;
+}
+
+body.theme-light .text-kimi-text {
+  color: #0f172a;
+}
+
+body.theme-light .text-kimi-text-secondary {
+  color: #334155;
+}
+
+body.theme-light .text-kimi-text-muted {
+  color: #64748b;
+}
+
 /* Custom scrollbar - refined */
 ::-webkit-scrollbar {
   width: 6px;
@@ -132,11 +173,26 @@ body {
   overflow: hidden;
 }
 
+.diff-comment-line {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.diff-comment-glyph {
+  background: rgba(139, 92, 246, 0.9);
+  width: 6px;
+  height: 6px;
+  margin-left: 3px;
+  border-radius: 999px;
+}
+
 /* Animations */
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.5;
   }
@@ -160,6 +216,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -174,6 +231,7 @@ body {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -185,9 +243,12 @@ body {
 }
 
 @keyframes glow {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 5px rgba(59, 130, 246, 0.3);
   }
+
   50% {
     box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
   }
@@ -198,9 +259,13 @@ body {
 }
 
 @keyframes typing {
-  0%, 60%, 100% {
+
+  0%,
+  60%,
+  100% {
     opacity: 1;
   }
+
   30% {
     opacity: 0.3;
   }
@@ -221,9 +286,7 @@ body {
 
 /* Button styles */
 .btn-primary {
-  @apply px-4 py-2.5 bg-kimi-blue hover:bg-kimi-blue-hover text-white rounded-lg font-medium
-         transition-all duration-200 ease-out shadow-inner-light
-         disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-kimi-blue;
+  @apply px-4 py-2.5 bg-kimi-blue hover:bg-kimi-blue-hover text-white rounded-lg font-medium transition-all duration-200 ease-out shadow-inner-light disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-kimi-blue;
 }
 
 .btn-primary:not(:disabled):active {
@@ -231,15 +294,11 @@ body {
 }
 
 .btn-secondary {
-  @apply px-4 py-2.5 bg-kimi-gray hover:bg-kimi-light-gray text-white rounded-lg font-medium
-         transition-all duration-200 ease-out border border-kimi-border shadow-inner-light
-         disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply px-4 py-2.5 bg-kimi-gray hover:bg-kimi-light-gray text-white rounded-lg font-medium transition-all duration-200 ease-out border border-kimi-border shadow-inner-light disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-danger {
-  @apply px-4 py-2.5 bg-kimi-red hover:bg-kimi-red-hover text-white rounded-lg font-medium
-         transition-all duration-200 ease-out shadow-inner-light
-         disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply px-4 py-2.5 bg-kimi-red hover:bg-kimi-red-hover text-white rounded-lg font-medium transition-all duration-200 ease-out shadow-inner-light disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-danger:not(:disabled):active {
@@ -247,9 +306,7 @@ body {
 }
 
 .btn-success {
-  @apply px-4 py-2.5 bg-kimi-green hover:bg-kimi-green-hover text-white rounded-lg font-medium
-         transition-all duration-200 ease-out shadow-inner-light
-         disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply px-4 py-2.5 bg-kimi-green hover:bg-kimi-green-hover text-white rounded-lg font-medium transition-all duration-200 ease-out shadow-inner-light disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-success:not(:disabled):active {
@@ -257,8 +314,7 @@ body {
 }
 
 .btn-ghost {
-  @apply px-3 py-2 text-kimi-text-secondary hover:text-white hover:bg-kimi-light-gray rounded-lg
-         transition-all duration-200 ease-out;
+  @apply px-3 py-2 text-kimi-text-secondary hover:text-white hover:bg-kimi-light-gray rounded-lg transition-all duration-200 ease-out;
 }
 
 /* Card styles */
@@ -272,10 +328,7 @@ body {
 
 /* Input styles */
 .input-primary {
-  @apply w-full px-4 py-3 bg-kimi-gray border border-kimi-border rounded-xl text-white
-         placeholder-kimi-text-muted transition-all duration-200 ease-out
-         focus:outline-none focus:border-kimi-blue focus:ring-2 focus:ring-kimi-blue/20
-         disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply w-full px-4 py-3 bg-kimi-gray border border-kimi-border rounded-xl text-white placeholder-kimi-text-muted transition-all duration-200 ease-out focus:outline-none focus:border-kimi-blue focus:ring-2 focus:ring-kimi-blue/20 disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 /* Status badge styles */
@@ -324,6 +377,78 @@ body {
   @apply bg-kimi-blue/10 border border-kimi-blue/20 rounded-2xl;
 }
 
+/* Task pane markdown */
+.task-markdown {
+  @apply text-sm leading-relaxed;
+}
+
+.task-markdown a {
+  @apply text-kimi-blue underline;
+}
+
+.task-markdown p {
+  @apply mb-3 last:mb-0;
+}
+
+.task-markdown ul {
+  @apply list-disc ml-5 mb-3;
+}
+
+.task-markdown ol {
+  @apply list-decimal ml-5 mb-3;
+}
+
+.task-markdown code {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', 'Source Code Pro', monospace;
+}
+
+.task-code-inline {
+  @apply px-1.5 py-0.5 rounded bg-kimi-dark text-kimi-text-secondary;
+}
+
+.task-code-block {
+  @apply bg-kimi-darker border border-kimi-border rounded-lg p-3 mb-3 overflow-x-auto;
+}
+
+.task-code-block code {
+  @apply text-xs text-kimi-text-secondary;
+}
+
+.task-code-block .hljs-comment,
+.task-code-block .hljs-quote {
+  color: #7c7c8a;
+}
+
+.task-code-block .hljs-keyword,
+.task-code-block .hljs-selector-tag,
+.task-code-block .hljs-literal,
+.task-code-block .hljs-section,
+.task-code-block .hljs-link {
+  color: #c084fc;
+}
+
+.task-code-block .hljs-string,
+.task-code-block .hljs-title,
+.task-code-block .hljs-name,
+.task-code-block .hljs-type,
+.task-code-block .hljs-attribute,
+.task-code-block .hljs-symbol,
+.task-code-block .hljs-bullet,
+.task-code-block .hljs-addition,
+.task-code-block .hljs-variable,
+.task-code-block .hljs-template-tag,
+.task-code-block .hljs-template-variable {
+  color: #34d399;
+}
+
+.task-code-block .hljs-number,
+.task-code-block .hljs-meta,
+.task-code-block .hljs-built_in,
+.task-code-block .hljs-builtin-name,
+.task-code-block .hljs-params {
+  color: #60a5fa;
+}
+
 /* Pane styles */
 .pane-header {
   @apply flex items-center justify-between px-4 py-3 border-b border-kimi-border bg-kimi-darker/50;
@@ -339,8 +464,7 @@ body {
 
 /* Tooltip styles */
 .tooltip {
-  @apply absolute z-50 px-2 py-1 text-xs bg-kimi-gray border border-kimi-border rounded shadow-lg
-         whitespace-nowrap pointer-events-none;
+  @apply absolute z-50 px-2 py-1 text-xs bg-kimi-gray border border-kimi-border rounded shadow-lg whitespace-nowrap pointer-events-none;
 }
 
 /* Progress indicator */
@@ -354,14 +478,12 @@ body {
 
 /* Keyboard shortcut badge */
 .kbd {
-  @apply inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-mono
-         bg-kimi-darker border border-kimi-border rounded text-kimi-text-muted;
+  @apply inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-mono bg-kimi-darker border border-kimi-border rounded text-kimi-text-muted;
 }
 
 /* Collapsible sections */
 .collapsible-header {
-  @apply flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg
-         hover:bg-kimi-light-gray transition-colors duration-150;
+  @apply flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg hover:bg-kimi-light-gray transition-colors duration-150;
 }
 
 .collapsible-content {

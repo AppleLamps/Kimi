@@ -13,6 +13,7 @@ vi.mock('../hooks/useSocket', () => ({
         agentState: null,
         logs: [],
         pendingDiffs: [],
+        progress: null,
         startTask: vi.fn(),
         resumeSession: vi.fn(),
         requestSessionState: vi.fn(),
@@ -21,6 +22,8 @@ vi.mock('../hooks/useSocket', () => ({
         continueTask: vi.fn(),
         applyDiff: vi.fn(),
         rejectDiff: vi.fn(),
+        applyAllDiffs: vi.fn(),
+        rejectAllDiffs: vi.fn(),
         clearLogs: vi.fn(),
     }),
 }));

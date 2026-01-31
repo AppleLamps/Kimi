@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs/promises';
+import { electronConfig } from './config';
+import { logger } from './logger';
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
@@ -38,36 +40,36 @@ function startBackend(): void {
   });
 
   backendProcess.stdout?.on('data', (data) => {
-    console.log(`Backend: ${data}`);
+    logger.info('backend_stdout', { message: String(data) });
   });
 
   backendProcess.stderr?.on('data', (data) => {
-    console.error(`Backend error: ${data}`);
+    logger.error('backend_stderr', { message: String(data) });
   });
 
   backendProcess.on('close', (code) => {
-    console.log(`Backend process exited with code ${code}`);
+    logger.info('backend_exit', { code });
   });
 }
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 1000,
-    minHeight: 700,
+    width: electronConfig.window.width,
+    height: electronConfig.window.height,
+    minWidth: electronConfig.window.minWidth,
+    minHeight: electronConfig.window.minHeight,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
-    backgroundColor: '#0f0f0f',
-    titleBarStyle: 'hiddenInset',
+    backgroundColor: electronConfig.window.backgroundColor,
+    titleBarStyle: electronConfig.window.titleBarStyle,
     frame: process.platform !== 'darwin',
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL(electronConfig.devServerUrl);
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));

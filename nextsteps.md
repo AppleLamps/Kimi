@@ -55,43 +55,43 @@ This document outlines potential features, improvements, and enhancements for th
 
 #### Logs Pane Improvements
 
-- [ ] Add search/filter functionality for logs
-- [ ] Implement log level filtering (errors, tool calls, thinking)
-- [ ] Add export logs feature (JSON, text formats)
-- [ ] Collapse/expand all tool results button
+- [x] Add search/filter functionality for logs
+- [x] Implement log level filtering (errors, tool calls, thinking)
+- [x] Add export logs feature (JSON, text formats)
+- [x] Collapse/expand all tool results button
 
 #### Code Review Pane Improvements
 
-- [ ] Add syntax highlighting based on file type
-- [ ] Implement side-by-side diff view option
-- [ ] Add "Apply All" / "Reject All" batch actions
-- [ ] Show file tree of pending changes
-- [ ] Add inline commenting on diffs
+- [x] Add syntax highlighting based on file type
+- [x] Implement side-by-side diff view option
+- [x] Add "Apply All" / "Reject All" batch actions
+- [x] Show file tree of pending changes
+- [x] Add inline commenting on diffs
 
 #### Task Pane Improvements
 
-- [ ] Add message timestamps
-- [ ] Implement message editing/regeneration
-- [ ] Add code block syntax highlighting in chat
-- [ ] Quick actions for common tasks (e.g., "Fix this error", "Add tests")
+- [x] Add message timestamps
+- [x] Implement message editing/regeneration
+- [x] Add code block syntax highlighting in chat
+- [x] Quick actions for common tasks (e.g., "Fix this error", "Add tests")
 
 #### General UI
 
-- [ ] Add keyboard shortcuts (Cmd/Ctrl+Enter to send, Escape to stop)
-- [ ] Implement light/dark theme toggle
-- [ ] Add workspace quick-switch dropdown
-- [ ] Show token usage per message
-- [ ] Add progress indicator for long operations
+- [x] Add keyboard shortcuts (Cmd/Ctrl+Enter to send, Escape to stop)
+- [x] Implement light/dark theme toggle
+- [x] Add workspace quick-switch dropdown
+- [x] Show token usage per message
+- [x] Add progress indicator for long operations
 
 ### 6. Additional Tools for Agent
 
-- [ ] `search_files` - Full-text search across workspace
-- [ ] `git_operations` - Git status, diff, commit, branch operations
-- [ ] `web_search` - Search documentation and Stack Overflow
-- [ ] `create_directory` - Create new directories
-- [ ] `delete_file` - Delete files (with approval)
-- [ ] `move_file` - Rename/move files
-- [ ] `run_tests` - Execute test suites with parsed results
+- [x] `search_files` - Full-text search across workspace
+- [x] `git_operations` - Git status, diff, commit, branch operations
+- [x] `web_search` - Search documentation and Stack Overflow
+- [x] `create_directory` - Create new directories
+- [x] `delete_file` - Delete files (with approval)
+- [x] `move_file` - Rename/move files
+- [x] `run_tests` - Execute test suites with parsed results
 
 ### 7. Git Integration
 
@@ -100,17 +100,17 @@ This document outlines potential features, improvements, and enhancements for th
 - [ ] Auto-stage applied diffs
 - [ ] Commit dialog with AI-generated messages
 - [ ] Branch creation and switching
-- [ ] Pull/push operations
+- [x] Pull/push operations
 - [ ] Diff against branches
 
 ### 8. Performance Optimizations
 
-- [ ] Implement message pagination for long conversations
-- [ ] Cache workspace file structure
-- [ ] Add streaming for API responses
-- [ ] Lazy load file contents in diff viewer
-- [ ] Debounce rapid UI updates
-- [ ] Virtualize long lists (logs, diffs)
+- [x] Implement message pagination for long conversations
+- [x] Cache workspace file structure
+- [x] Add streaming for API responses
+- [x] Lazy load file contents in diff viewer
+- [x] Debounce rapid UI updates
+- [x] Virtualize long lists (logs, diffs)
 
 ---
 

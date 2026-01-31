@@ -2,6 +2,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { MoonshotClient } from '../api/moonshotClient.js';
 import { ToolExecutor } from './tools.js';
 import { SYSTEM_PROMPT, TOOL_DEFINITIONS } from './systemPrompt.js';
+import { backendConfig } from '../config.js';
+import {
+  ValidationError,
+  formatValidationIssues,
+  parseWithSchema,
+  toolInputSchemas,
+} from '../validation.js';
 import type {
   Message,
   AgentState,
@@ -11,12 +18,19 @@ import type {
   ReadFileParams,
   ProposeFileChangeParams,
   RunCommandParams,
+  SearchFilesParams,
+  GitOperationsParams,
+  WebSearchParams,
+  CreateDirectoryParams,
+  DeleteFileParams,
+  MoveFileParams,
+  RunTestsParams,
   ModelConfig,
 } from '../types.js';
 
 export type UpdateCallback = (update: AgentUpdate) => void;
 
-const MAX_ITERATIONS = 50; // Safety limit
+const MAX_ITERATIONS = backendConfig.agent.maxIterations;
 
 export class AgentLoop {
   private client: MoonshotClient;
@@ -33,16 +47,16 @@ export class AgentLoop {
     modelConfig?: ModelConfig
   ) {
     const resolvedModelConfig: ModelConfig = {
-      model: modelConfig?.model ?? 'kimi-k2-0711-preview',
-      temperature: modelConfig?.temperature ?? 0.3,
-      maxTokens: modelConfig?.maxTokens ?? 100000,
-      baseUrl: modelConfig?.baseUrl,
+      model: modelConfig?.model ?? backendConfig.model.defaultModel,
+      temperature: modelConfig?.temperature ?? backendConfig.model.defaultTemperature,
+      maxTokens: modelConfig?.maxTokens ?? backendConfig.model.defaultMaxTokens,
+      baseUrl: modelConfig?.baseUrl ?? backendConfig.model.defaultBaseUrl,
     };
 
     this.client = new MoonshotClient(
       apiKey,
       resolvedModelConfig.model,
-      resolvedModelConfig.baseUrl ?? 'https://api.moonshot.cn/v1'
+      resolvedModelConfig.baseUrl ?? backendConfig.model.defaultBaseUrl
     );
     this.toolExecutor = new ToolExecutor(workspacePath);
     this.onUpdate = onUpdate;
@@ -80,7 +94,7 @@ export class AgentLoop {
       taskId: this.state.taskId,
       task: this.state.task,
       messages: this.state.messages,
-      pendingDiffs: this.toolExecutor.getPendingDiffs(),
+      pendingDiffs: this.toolExecutor.getPendingDiffs().map((diff) => this.toClientDiff(diff)),
       isRunning: this.state.isRunning,
       isComplete: this.state.isComplete,
       workspacePath: this.state.workspacePath,
@@ -103,6 +117,11 @@ export class AgentLoop {
 
     this.state.isRunning = true;
     this.abortController = new AbortController();
+
+    this.onUpdate({
+      type: 'progress',
+      data: { current: 0, total: MAX_ITERATIONS, stage: 'starting' },
+    });
 
     try {
       await this.runLoop();
@@ -133,19 +152,33 @@ export class AgentLoop {
 
       iterations++;
       this.onUpdate({
+        type: 'progress',
+        data: { current: iterations, total: MAX_ITERATIONS, stage: 'thinking' },
+      });
+      this.onUpdate({
         type: 'thinking',
         data: { iteration: iterations },
       });
 
       // Get next action from the model
       let response: Awaited<ReturnType<MoonshotClient['chat']>>;
+      let messageId: string | null = null;
       try {
         const { temperature, maxTokens } = this.state.modelConfig;
-        response = await this.client.chat(
+        messageId = uuidv4();
+        response = await this.client.chatStream(
           this.state.messages,
           TOOL_DEFINITIONS,
           temperature,
-          maxTokens
+          maxTokens,
+          (delta) => {
+            if (!delta) return;
+            this.onUpdate({
+              type: 'message_delta',
+              data: { messageId, delta },
+            });
+          },
+          this.abortController?.signal
         );
       } catch (error) {
         this.onUpdate({
@@ -164,7 +197,7 @@ export class AgentLoop {
 
         this.onUpdate({
           type: 'message',
-          data: { content: response.content },
+          data: { content: response.content, usage: response.usage, messageId },
         });
 
         // Check if agent declares completion
@@ -182,6 +215,10 @@ export class AgentLoop {
             this.onUpdate({
               type: 'complete',
               data: { message: 'Agent completed the task' },
+            });
+            this.onUpdate({
+              type: 'progress',
+              data: { current: MAX_ITERATIONS, total: MAX_ITERATIONS, stage: 'complete' },
             });
             break;
           }
@@ -239,6 +276,10 @@ export class AgentLoop {
         type: 'error',
         data: { message: 'Agent reached maximum iterations limit' },
       });
+      this.onUpdate({
+        type: 'progress',
+        data: { current: MAX_ITERATIONS, total: MAX_ITERATIONS, stage: 'limit' },
+      });
     }
   }
 
@@ -249,31 +290,33 @@ export class AgentLoop {
 
     try {
       const args = JSON.parse(argsJson);
+      const schema = toolInputSchemas[name];
+      const validatedArgs = schema ? parseWithSchema(schema, args) : args;
 
       switch (name) {
         case 'list_files': {
           const files = await this.toolExecutor.listFiles(
-            args as ListFilesParams
+            validatedArgs as ListFilesParams
           );
           return JSON.stringify(files, null, 2);
         }
 
         case 'read_file': {
           const content = await this.toolExecutor.readFile(
-            args as ReadFileParams
+            validatedArgs as ReadFileParams
           );
           return content;
         }
 
         case 'propose_file_change': {
           const diff = await this.toolExecutor.proposeFileChange(
-            args as ProposeFileChangeParams
+            validatedArgs as ProposeFileChangeParams
           );
 
           // Notify UI about the proposed diff
           this.onUpdate({
             type: 'diff_proposed',
-            data: diff,
+            data: this.toClientDiff(diff),
           });
 
           return `Diff proposed for ${diff.path}. Waiting for user approval. Diff ID: ${diff.id}`;
@@ -281,20 +324,84 @@ export class AgentLoop {
 
         case 'run_command': {
           const result = await this.toolExecutor.runCommand(
-            args as RunCommandParams
+            validatedArgs as RunCommandParams
           );
           return `Exit code: ${result.exitCode}\n\nStdout:\n${result.stdout}\n\nStderr:\n${result.stderr}`;
+        }
+
+        case 'search_files': {
+          const results = await this.toolExecutor.searchFiles(
+            validatedArgs as SearchFilesParams
+          );
+          return JSON.stringify(results, null, 2);
+        }
+
+        case 'git_operations': {
+          const result = await this.toolExecutor.gitOperations(
+            validatedArgs as GitOperationsParams
+          );
+          return JSON.stringify(result, null, 2);
+        }
+
+        case 'web_search': {
+          const result = await this.toolExecutor.webSearch(
+            validatedArgs as WebSearchParams
+          );
+          return JSON.stringify(result, null, 2);
+        }
+
+        case 'create_directory': {
+          const result = await this.toolExecutor.createDirectory(
+            validatedArgs as CreateDirectoryParams
+          );
+          return JSON.stringify(result, null, 2);
+        }
+
+        case 'delete_file': {
+          const diff = await this.toolExecutor.proposeDeleteFile(
+            validatedArgs as DeleteFileParams
+          );
+          this.onUpdate({
+            type: 'diff_proposed',
+            data: this.toClientDiff(diff),
+          });
+          return `Delete proposed for ${diff.path}. Waiting for user approval. Diff ID: ${diff.id}`;
+        }
+
+        case 'move_file': {
+          const diff = await this.toolExecutor.proposeMoveFile(
+            validatedArgs as MoveFileParams
+          );
+          this.onUpdate({
+            type: 'diff_proposed',
+            data: this.toClientDiff(diff),
+          });
+          return `Move proposed from ${diff.oldPath} to ${diff.newPath}. Waiting for user approval. Diff ID: ${diff.id}`;
+        }
+
+        case 'run_tests': {
+          const result = await this.toolExecutor.runTests(
+            validatedArgs as RunTestsParams
+          );
+          return JSON.stringify(result, null, 2);
         }
 
         default:
           return `Unknown tool: ${name}`;
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = error instanceof ValidationError
+        ? `Validation failed: ${formatValidationIssues(error.issues)}`
+        : error instanceof Error
+          ? error.message
+          : String(error);
       const isParseError = error instanceof SyntaxError;
+      const isValidationError = error instanceof ValidationError;
       const actionableHint = isParseError
         ? 'Tool arguments were invalid JSON. Please retry.'
-        : 'Please check the inputs and retry.';
+        : isValidationError
+          ? 'Tool arguments did not match the required schema. Please retry.'
+          : 'Please check the inputs and retry.';
 
       this.onUpdate({
         type: 'error',
@@ -351,6 +458,48 @@ export class AgentLoop {
     return diff;
   }
 
+  async applyAllDiffs(): Promise<DiffResult[]> {
+    const pending = this.toolExecutor.getPendingDiffs();
+    const applied: DiffResult[] = [];
+
+    for (const diff of pending) {
+      const result = await this.applyDiff(diff.id);
+      if (result) {
+        applied.push(result);
+      }
+    }
+
+    if (applied.length > 0) {
+      this.state.messages.push({
+        role: 'user',
+        content: `[System] All pending diffs (${applied.length}) have been approved and applied.`,
+      });
+    }
+
+    return applied;
+  }
+
+  rejectAllDiffs(): DiffResult[] {
+    const pending = this.toolExecutor.getPendingDiffs();
+    const rejected: DiffResult[] = [];
+
+    for (const diff of pending) {
+      const result = this.rejectDiff(diff.id);
+      if (result) {
+        rejected.push(result);
+      }
+    }
+
+    if (rejected.length > 0) {
+      this.state.messages.push({
+        role: 'user',
+        content: `[System] All pending diffs (${rejected.length}) have been rejected. Please propose alternatives or ask for clarification.`,
+      });
+    }
+
+    return rejected;
+  }
+
   // Add user message (for follow-up tasks)
   addUserMessage(content: string): void {
     this.state.messages.push({
@@ -361,6 +510,15 @@ export class AgentLoop {
   }
 
   getPendingDiffs(): DiffResult[] {
-    return this.toolExecutor.getPendingDiffs();
+    return this.toolExecutor.getPendingDiffs().map((diff) => this.toClientDiff(diff));
+  }
+
+  getPendingDiff(diffId: string): DiffResult | undefined {
+    return this.toolExecutor.getPendingDiff(diffId);
+  }
+
+  private toClientDiff(diff: DiffResult): DiffResult {
+    const { original, proposed, ...rest } = diff;
+    return rest;
   }
 }

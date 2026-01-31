@@ -3,8 +3,26 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import { AgentLoop, UpdateCallback } from './agent/agentLoop.js';
-import { validateWorkspace, getWorkspaceInfo } from './workspace/workspace.js';
-import type { TaskRequest, AgentUpdate, ModelConfig } from './types.js';
+import { ToolExecutor } from './agent/tools.js';
+import { validateWorkspace, getWorkspaceInfo, getWorkspaceTree } from './workspace/workspace.js';
+import { backendConfig } from './config.js';
+import { logger } from './logger.js';
+import {
+  ValidationError,
+  diffActionSchema,
+  diffParamsSchema,
+  formatValidationIssues,
+  gitOperationSchema,
+  parseWithSchema,
+  sessionParamsSchema,
+  sessionResumeSchema,
+  sessionStateRequestSchema,
+  taskContinueSchema,
+  taskStartSchema,
+  workspaceTreeQuerySchema,
+  workspaceValidateSchema,
+} from './validation.js';
+import type { TaskRequest, AgentUpdate, ModelConfig, GitOperationRequest } from './types.js';
 
 export interface BackendServerOptions {
   apiKey?: string;
@@ -18,6 +36,7 @@ export interface BackendServerOptions {
   ) => AgentLoop;
   validateWorkspaceFn?: typeof validateWorkspace;
   getWorkspaceInfoFn?: typeof getWorkspaceInfo;
+  getWorkspaceTreeFn?: typeof getWorkspaceTree;
 }
 
 export interface BackendServerInstance {
@@ -29,21 +48,18 @@ export interface BackendServerInstance {
   stop: () => Promise<void>;
 }
 
-const DEFAULT_PORT = 3001;
-const DEFAULT_CORS_ORIGINS = ['http://localhost:3000', 'http://localhost:5173'];
-const SESSION_GRACE_MS = 2 * 60 * 1000;
-
 export function createBackendServer(
   options: BackendServerOptions = {}
 ): BackendServerInstance {
   const apiKey = options.apiKey ?? process.env.MOONSHOT_API_KEY ?? '';
-  const corsOrigins = options.corsOrigins ?? DEFAULT_CORS_ORIGINS;
+  const corsOrigins = options.corsOrigins ?? backendConfig.server.corsOrigins;
   const makeAgent =
     options.agentLoopFactory ??
     ((key, workspacePath, task, onUpdate, modelConfig) =>
       new AgentLoop(key, workspacePath, task, onUpdate, modelConfig));
   const validateWorkspaceFn = options.validateWorkspaceFn ?? validateWorkspace;
   const getWorkspaceInfoFn = options.getWorkspaceInfoFn ?? getWorkspaceInfo;
+  const getWorkspaceTreeFn = options.getWorkspaceTreeFn ?? getWorkspaceTree;
 
   const app = express();
   const httpServer = createServer(app);
@@ -57,6 +73,20 @@ export function createBackendServer(
   app.use(cors());
   app.use(express.json());
 
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on('finish', () => {
+      logger.info('http_request', {
+        method: req.method,
+        path: req.originalUrl,
+        status: res.statusCode,
+        durationMs: Date.now() - startedAt,
+        ip: req.ip,
+      });
+    });
+    next();
+  });
+
   const activeSessions = new Map<string, AgentLoop>();
   const sessionTimeouts = new Map<string, NodeJS.Timeout>();
 
@@ -64,23 +94,66 @@ export function createBackendServer(
     res.json({ status: 'ok', hasApiKey: !!apiKey });
   });
 
+  const sendValidationError = (res: express.Response, error: unknown) => {
+    if (error instanceof ValidationError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: formatValidationIssues(error.issues),
+      });
+    }
+    throw error;
+  };
+
   app.post('/api/workspace/validate', async (req, res) => {
-    const { path } = req.body;
-    if (!path) {
-      return res.status(400).json({ error: 'Path is required' });
+    let payload: { path: string };
+    try {
+      payload = parseWithSchema(workspaceValidateSchema, req.body);
+    } catch (error) {
+      return sendValidationError(res, error);
     }
 
-    const isValid = await validateWorkspaceFn(path);
+    const isValid = await validateWorkspaceFn(payload.path);
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid workspace path' });
     }
 
-    const info = await getWorkspaceInfoFn(path);
+    const info = await getWorkspaceInfoFn(payload.path);
     res.json(info);
   });
 
+  app.get('/api/workspace/tree', async (req, res) => {
+    let payload: { path: string; depth?: number; maxEntries?: number };
+    try {
+      payload = parseWithSchema(workspaceTreeQuerySchema, {
+        path: req.query.path,
+        depth: req.query.depth,
+        maxEntries: req.query.maxEntries,
+      });
+    } catch (error) {
+      return sendValidationError(res, error);
+    }
+
+    const isValid = await validateWorkspaceFn(payload.path);
+    if (!isValid) {
+      return res.status(400).json({ error: 'Invalid workspace path' });
+    }
+
+    const tree = await getWorkspaceTreeFn(payload.path, {
+      maxDepth: payload.depth,
+      maxEntries: payload.maxEntries,
+    });
+
+    res.json(tree);
+  });
+
   app.get('/api/session/:sessionId/diffs', (req, res) => {
-    const { sessionId } = req.params;
+    let params: { sessionId: string };
+    try {
+      params = parseWithSchema(sessionParamsSchema, req.params);
+    } catch (error) {
+      return sendValidationError(res, error);
+    }
+    const { sessionId } = params;
     const agent = activeSessions.get(sessionId);
 
     if (!agent) {
@@ -91,8 +164,39 @@ export function createBackendServer(
     res.json(diffs);
   });
 
+  app.get('/api/session/:sessionId/diff/:diffId', (req, res) => {
+    let params: { sessionId: string; diffId: string };
+    try {
+      params = parseWithSchema(diffParamsSchema, req.params);
+    } catch (error) {
+      return sendValidationError(res, error);
+    }
+    const { sessionId, diffId } = params;
+    const agent = activeSessions.get(sessionId);
+
+    if (!agent) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const diff = agent.getPendingDiff(diffId);
+    if (!diff) {
+      return res.status(404).json({ error: 'Diff not found' });
+    }
+
+    res.json({
+      id: diff.id,
+      path: diff.path,
+      operation: diff.operation,
+      oldPath: diff.oldPath,
+      newPath: diff.newPath,
+      original: diff.original ?? '',
+      proposed: diff.proposed ?? '',
+      diff: diff.diff,
+    });
+  });
+
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+    logger.info('socket_connected', { socketId: socket.id });
 
     let currentAgent: AgentLoop | null = null;
     let sessionId: string | null = null;
@@ -101,8 +205,49 @@ export function createBackendServer(
       socket.emit('agent:update', update);
     };
 
+    const emitValidationError = (event: string, message: string) => {
+      socket.emit('agent:update', {
+        type: 'error',
+        data: { message: `Invalid ${event} payload: ${message}` },
+      });
+    };
+
+    const parseSocketPayload = <T>(
+      event: string,
+      schema: (data: unknown) => T,
+      data: unknown,
+      onError?: (message: string) => void
+    ): T | null => {
+      try {
+        const candidate = data ?? {};
+        return schema(candidate);
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          const details = formatValidationIssues(error.issues);
+          logger.warn('socket_validation_failed', { event, details, socketId: socket.id });
+          if (onError) {
+            onError(details);
+          } else {
+            emitValidationError(event, details);
+          }
+          return null;
+        }
+        throw error;
+      }
+    };
+
     socket.on('session:resume', (data: { sessionId?: string }) => {
-      const requestedId = data?.sessionId;
+      const payload = parseSocketPayload(
+        'session:resume',
+        (value) => parseWithSchema(sessionResumeSchema, value),
+        data,
+        (details) => {
+          socket.emit('session:expired', { message: `Invalid session:resume payload: ${details}` });
+        }
+      );
+      if (!payload) return;
+
+      const requestedId = payload.sessionId;
       if (!requestedId) {
         socket.emit('session:expired', {
           message: 'No session to resume. Please start a new task.',
@@ -144,7 +289,14 @@ export function createBackendServer(
     });
 
     socket.on('session:state:request', (data: { sessionId?: string }) => {
-      const requestedId = data?.sessionId ?? sessionId;
+      const payload = parseSocketPayload(
+        'session:state:request',
+        (value) => parseWithSchema(sessionStateRequestSchema, value),
+        data
+      );
+      if (!payload) return;
+
+      const requestedId = payload.sessionId ?? sessionId;
       if (!requestedId) {
         socket.emit('session:expired', {
           message: 'No session to resume. Please start a new task.',
@@ -173,15 +325,14 @@ export function createBackendServer(
         return;
       }
 
-      const { task, workspacePath, modelConfig } = data;
+      const payload = parseSocketPayload(
+        'task:start',
+        (value) => parseWithSchema(taskStartSchema, value),
+        data
+      );
+      if (!payload) return;
 
-      if (!task || !workspacePath) {
-        socket.emit('agent:update', {
-          type: 'error',
-          data: { message: 'Task and workspace path are required' },
-        });
-        return;
-      }
+      const { task, workspacePath, modelConfig } = payload;
 
       const isValid = await validateWorkspaceFn(workspacePath);
       if (!isValid) {
@@ -197,10 +348,10 @@ export function createBackendServer(
       }
 
       const resolvedModelConfig = {
-        model: modelConfig?.model ?? 'kimi-k2-0711-preview',
-        temperature: modelConfig?.temperature ?? 0.3,
-        maxTokens: modelConfig?.maxTokens ?? 100000,
-        baseUrl: modelConfig?.baseUrl,
+        model: modelConfig?.model ?? backendConfig.model.defaultModel,
+        temperature: modelConfig?.temperature ?? backendConfig.model.defaultTemperature,
+        maxTokens: modelConfig?.maxTokens ?? backendConfig.model.defaultMaxTokens,
+        baseUrl: modelConfig?.baseUrl ?? backendConfig.model.defaultBaseUrl,
       };
 
       currentAgent = makeAgent(apiKey, workspacePath, task, onUpdate, resolvedModelConfig);
@@ -245,7 +396,14 @@ export function createBackendServer(
         return;
       }
 
-      currentAgent.addUserMessage(data.message);
+      const payload = parseSocketPayload(
+        'task:continue',
+        (value) => parseWithSchema(taskContinueSchema, value),
+        data
+      );
+      if (!payload) return;
+
+      currentAgent.addUserMessage(payload.message);
       try {
         await currentAgent.start();
       } catch (error) {
@@ -265,11 +423,18 @@ export function createBackendServer(
         return;
       }
 
+      const payload = parseSocketPayload(
+        'diff:apply',
+        (value) => parseWithSchema(diffActionSchema, value),
+        data
+      );
+      if (!payload) return;
+
       try {
-        const applied = await currentAgent.applyDiff(data.diffId);
+        const applied = await currentAgent.applyDiff(payload.diffId);
         if (applied) {
           socket.emit('diff:applied', {
-            diffId: data.diffId,
+            diffId: payload.diffId,
             path: applied.path,
           });
         } else {
@@ -295,9 +460,16 @@ export function createBackendServer(
         return;
       }
 
-      const rejected = currentAgent.rejectDiff(data.diffId);
+      const payload = parseSocketPayload(
+        'diff:reject',
+        (value) => parseWithSchema(diffActionSchema, value),
+        data
+      );
+      if (!payload) return;
+
+      const rejected = currentAgent.rejectDiff(payload.diffId);
       if (rejected) {
-        socket.emit('diff:rejected', { diffId: data.diffId, path: rejected.path });
+        socket.emit('diff:rejected', { diffId: payload.diffId, path: rejected.path });
       } else {
         socket.emit('agent:update', {
           type: 'error',
@@ -306,29 +478,151 @@ export function createBackendServer(
       }
     });
 
+    socket.on('diff:apply_all', async () => {
+      if (!currentAgent) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'No active session' },
+        });
+        return;
+      }
+
+      try {
+        const applied = await currentAgent.applyAllDiffs();
+        applied.forEach((diff) => {
+          socket.emit('diff:applied', {
+            diffId: diff.id,
+            path: diff.path,
+          });
+        });
+        if (applied.length === 0) {
+          socket.emit('agent:update', {
+            type: 'info',
+            data: { message: 'No pending diffs to apply.' },
+          });
+        }
+      } catch (error) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: (error as Error).message },
+        });
+      }
+    });
+
+    socket.on('diff:reject_all', () => {
+      if (!currentAgent) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'No active session' },
+        });
+        return;
+      }
+
+      const rejected = currentAgent.rejectAllDiffs();
+      rejected.forEach((diff) => {
+        socket.emit('diff:rejected', { diffId: diff.id, path: diff.path });
+      });
+      if (rejected.length === 0) {
+        socket.emit('agent:update', {
+          type: 'info',
+          data: { message: 'No pending diffs to reject.' },
+        });
+      }
+    });
+
+    const runGitOperation = async (
+      action: 'pull' | 'push',
+      data: GitOperationRequest
+    ) => {
+      const payload = parseSocketPayload(
+        `git:${action}`,
+        (value) => parseWithSchema(gitOperationSchema, value),
+        data,
+        (details) => {
+          socket.emit('git:error', {
+            action,
+            message: `Invalid git:${action} payload: ${details}`,
+          });
+        }
+      );
+      if (!payload) return;
+      const workspacePath = payload.workspacePath;
+
+      const isValid = await validateWorkspaceFn(workspacePath);
+      if (!isValid) {
+        socket.emit('git:error', {
+          action,
+          message: 'Invalid workspace path',
+        });
+        return;
+      }
+
+      const info = await getWorkspaceInfoFn(workspacePath);
+      if (!info.isGitRepo) {
+        socket.emit('git:error', {
+          action,
+          message: 'Workspace is not a git repository',
+        });
+        return;
+      }
+
+      socket.emit('git:started', { action });
+
+      try {
+        const executor = new ToolExecutor(workspacePath);
+        const result = await executor.gitOperations({
+          action,
+          args: {
+            remote: payload.remote,
+            branch: payload.branch,
+          },
+        });
+
+        socket.emit('git:result', {
+          action,
+          result,
+        });
+      } catch (error) {
+        socket.emit('git:error', {
+          action,
+          message: (error as Error).message,
+        });
+      }
+    };
+
+    socket.on('git:pull', (data: GitOperationRequest) => {
+      void runGitOperation('pull', data);
+    });
+
+    socket.on('git:push', (data: GitOperationRequest) => {
+      void runGitOperation('push', data);
+    });
+
     socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
+      logger.info('socket_disconnected', { socketId: socket.id });
       if (sessionId && currentAgent) {
         const timeout = setTimeout(() => {
           currentAgent?.stop();
           activeSessions.delete(sessionId);
           sessionTimeouts.delete(sessionId);
-        }, SESSION_GRACE_MS);
+        }, backendConfig.server.sessionGraceMs);
         timeout.unref();
         sessionTimeouts.set(sessionId, timeout);
       }
     });
   });
 
-  const start = (port: number = DEFAULT_PORT) =>
+  const start = (port: number = backendConfig.server.defaultPort) =>
     new Promise<{ port: number }>((resolve) => {
       httpServer.listen(port, () => {
         const address = httpServer.address();
         const actualPort =
           typeof address === 'object' && address ? address.port : port;
-        console.log(`Kimi Coding Agent backend running on port ${actualPort}`);
+        logger.info('server_started', { port: actualPort });
         if (!apiKey) {
-          console.warn('Warning: MOONSHOT_API_KEY environment variable not set');
+          logger.warn('missing_api_key', {
+            message: 'MOONSHOT_API_KEY environment variable not set',
+          });
         }
         resolve({ port: actualPort });
       });
@@ -373,7 +667,7 @@ export function createBackendServer(
 }
 
 if (process.env.NODE_ENV !== 'test') {
-  const port = Number(process.env.PORT) || DEFAULT_PORT;
+  const port = Number(process.env.PORT) || backendConfig.server.defaultPort;
   const server = createBackendServer();
   void server.start(port);
 }

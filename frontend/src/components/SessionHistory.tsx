@@ -1,6 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Clock, FileDown, FileUp, History, Play, Search } from 'lucide-react';
 import type { SessionRecord } from '../types';
+
+const SESSION_PAGE_SIZE = 8;
 
 interface SessionHistoryProps {
     sessions: SessionRecord[];
@@ -19,6 +21,7 @@ export default function SessionHistory({
     onExport,
     onImport,
 }: SessionHistoryProps) {
+    const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE);
     const filtered = useMemo(() => {
         const query = searchValue.trim().toLowerCase();
         if (!query) return sessions;
@@ -29,6 +32,13 @@ export default function SessionHistory({
             );
         });
     }, [sessions, searchValue]);
+
+    useEffect(() => {
+        setVisibleCount(SESSION_PAGE_SIZE);
+    }, [searchValue, sessions.length]);
+
+    const pagedSessions = filtered.slice(0, visibleCount);
+    const remainingCount = Math.max(0, filtered.length - pagedSessions.length);
 
     return (
         <div className="border-b border-kimi-border bg-kimi-darker/60">
@@ -64,41 +74,54 @@ export default function SessionHistory({
                 {filtered.length === 0 ? (
                     <p className="px-3 py-4 text-xs text-kimi-text-muted">No sessions found.</p>
                 ) : (
-                    filtered.map((session) => (
-                        <div
-                            key={session.id}
-                            className="mb-2 px-3 py-2 rounded-lg border border-kimi-border/60 bg-kimi-gray/40"
-                        >
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0">
-                                    <p className="text-xs font-medium text-kimi-text truncate">{session.title}</p>
-                                    <p className="text-[10px] text-kimi-text-muted truncate">{session.workspacePath}</p>
+                    <>
+                        {pagedSessions.map((session) => (
+                            <div
+                                key={session.id}
+                                className="mb-2 px-3 py-2 rounded-lg border border-kimi-border/60 bg-kimi-gray/40"
+                            >
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-medium text-kimi-text truncate">{session.title}</p>
+                                        <p className="text-[10px] text-kimi-text-muted truncate">{session.workspacePath}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => onResume(session)}
+                                        className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-kimi-purple/20 text-kimi-purple border border-kimi-purple/30"
+                                        title="Resume session"
+                                    >
+                                        <Play size={10} />
+                                        Resume
+                                    </button>
                                 </div>
+                                <div className="flex items-center justify-between mt-2">
+                                    <span className="text-[10px] text-kimi-text-muted flex items-center gap-1">
+                                        <Clock size={10} />
+                                        {new Date(session.updatedAt).toLocaleString()}
+                                    </span>
+                                    <button
+                                        onClick={() => onExport(session)}
+                                        className="text-[10px] text-kimi-text-muted hover:text-kimi-text flex items-center gap-1"
+                                        title="Export session"
+                                    >
+                                        <FileDown size={10} />
+                                        Export
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                        {remainingCount > 0 && (
+                            <div className="flex justify-center">
                                 <button
-                                    onClick={() => onResume(session)}
-                                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-kimi-purple/20 text-kimi-purple border border-kimi-purple/30"
-                                    title="Resume session"
+                                    onClick={() => setVisibleCount((prev) => prev + SESSION_PAGE_SIZE)}
+                                    className="btn-ghost px-3 py-1 text-[10px] rounded-full"
+                                    title="Load more sessions"
                                 >
-                                    <Play size={10} />
-                                    Resume
+                                    Load {Math.min(SESSION_PAGE_SIZE, remainingCount)} more
                                 </button>
                             </div>
-                            <div className="flex items-center justify-between mt-2">
-                                <span className="text-[10px] text-kimi-text-muted flex items-center gap-1">
-                                    <Clock size={10} />
-                                    {new Date(session.updatedAt).toLocaleString()}
-                                </span>
-                                <button
-                                    onClick={() => onExport(session)}
-                                    className="text-[10px] text-kimi-text-muted hover:text-kimi-text flex items-center gap-1"
-                                    title="Export session"
-                                >
-                                    <FileDown size={10} />
-                                    Export
-                                </button>
-                            </div>
-                        </div>
-                    ))
+                        )}
+                    </>
                 )}
             </div>
         </div>

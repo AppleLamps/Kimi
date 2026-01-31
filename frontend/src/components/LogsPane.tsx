@@ -1,4 +1,5 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Terminal,
   ChevronDown,
@@ -16,6 +17,9 @@ import {
   Search,
 } from 'lucide-react';
 import type { LogEntry } from '../types';
+
+const LOG_PAGE_SIZE = 60;
+const SCROLL_BOTTOM_THRESHOLD = 80;
 
 interface LogsPaneProps {
   logs: LogEntry[];
@@ -312,8 +316,12 @@ function InfoEntry({ log }: { log: LogEntry }) {
 
 export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+  const pendingScrollRef = useRef<{ prevScrollHeight: number; prevScrollTop: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandAllState, setExpandAllState] = useState<boolean | null>(null);
+  const [logPage, setLogPage] = useState(1);
   const [severityFilters, setSeverityFilters] = useState({
     tool: true,
     error: true,
@@ -364,14 +372,50 @@ export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
     });
   }, [executionLogs, searchQuery, severityFilters]);
 
+  useEffect(() => {
+    setLogPage(1);
+  }, [searchQuery, severityFilters, showReasoning]);
+
+  const pagedLogs = useMemo(() => {
+    const total = filteredLogs.length;
+    const visibleCount = Math.min(total, logPage * LOG_PAGE_SIZE);
+    return filteredLogs.slice(Math.max(0, total - visibleCount));
+  }, [filteredLogs, logPage]);
+
+  const remainingLogCount = Math.max(0, filteredLogs.length - pagedLogs.length);
+
+  const rowVirtualizer = useVirtualizer({
+    count: pagedLogs.length,
+    getScrollElement: () => logsContainerRef.current,
+    estimateSize: () => 72,
+    overscan: 8,
+  });
+
   // Count tool calls
   const toolCallCount = filteredLogs.filter((log) => log.type === 'tool_call').length;
   const errorCount = filteredLogs.filter((log) => log.type === 'error').length;
 
+  const handleLogsScroll = () => {
+    const container = logsContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    isAtBottomRef.current = distanceFromBottom < SCROLL_BOTTOM_THRESHOLD;
+  };
+
+  useEffect(() => {
+    const pending = pendingScrollRef.current;
+    const container = logsContainerRef.current;
+    if (!pending || !container) return;
+    const nextScrollTop = container.scrollHeight - pending.prevScrollHeight + pending.prevScrollTop;
+    container.scrollTop = nextScrollTop;
+    pendingScrollRef.current = null;
+  }, [pagedLogs]);
+
   // Auto-scroll
   useEffect(() => {
+    if (!isAtBottomRef.current || pendingScrollRef.current) return;
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [filteredLogs]);
+  }, [pagedLogs]);
 
   // Check if agent is currently running (based on last log being thinking)
   const isRunning = executionLogs.length > 0 && executionLogs[executionLogs.length - 1].type === 'thinking';
@@ -385,6 +429,17 @@ export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
 
   const handleManualExpandToggle = () => {
     setExpandAllState(null);
+  };
+
+  const handleLoadOlderLogs = () => {
+    const container = logsContainerRef.current;
+    if (container) {
+      pendingScrollRef.current = {
+        prevScrollHeight: container.scrollHeight,
+        prevScrollTop: container.scrollTop,
+      };
+    }
+    setLogPage((prev) => prev + 1);
   };
 
   const hasExpandableEntries = filteredLogs.some((log) =>
@@ -532,7 +587,11 @@ export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
       </div>
 
       {/* Logs */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 scroll-container">
+      <div
+        ref={logsContainerRef}
+        onScroll={handleLogsScroll}
+        className="flex-1 overflow-y-auto p-3 space-y-2 scroll-container"
+      >
         {filteredLogs.length === 0 ? (
           <div className="empty-state mt-8">
             <div className="w-16 h-16 rounded-2xl bg-kimi-gray flex items-center justify-center mb-4">
@@ -544,47 +603,74 @@ export default function LogsPane({ logs, showReasoning }: LogsPaneProps) {
             </p>
           </div>
         ) : (
-          filteredLogs.map((log) => {
-            switch (log.type) {
-              case 'tool_call':
+          <>
+            {remainingLogCount > 0 && (
+              <div className="flex justify-center">
+                <button
+                  onClick={handleLoadOlderLogs}
+                  className="btn-ghost px-3 py-1 text-[10px] rounded-full"
+                  title="Load earlier logs"
+                >
+                  Load earlier {Math.min(LOG_PAGE_SIZE, remainingLogCount)} logs
+                </button>
+              </div>
+            )}
+            <div
+              className="relative"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const log = pagedLogs[virtualRow.index];
                 return (
-                  <ToolCallEntry
+                  <div
                     key={log.id}
-                    log={log}
-                    forceExpanded={expandAllState}
-                    onManualToggle={handleManualExpandToggle}
-                  />
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="absolute left-0 w-full"
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    {(() => {
+                      switch (log.type) {
+                        case 'tool_call':
+                          return (
+                            <ToolCallEntry
+                              log={log}
+                              forceExpanded={expandAllState}
+                              onManualToggle={handleManualExpandToggle}
+                            />
+                          );
+                        case 'tool_result':
+                          return (
+                            <ToolResultEntry
+                              log={log}
+                              forceExpanded={expandAllState}
+                              onManualToggle={handleManualExpandToggle}
+                            />
+                          );
+                        case 'thinking':
+                          return (
+                            <ThinkingEntry
+                              log={log}
+                              isRunning={isRunning && log === executionLogs[executionLogs.length - 1]}
+                            />
+                          );
+                        case 'error':
+                          return (
+                            <ErrorEntry
+                              log={log}
+                              forceExpanded={expandAllState}
+                              onManualToggle={handleManualExpandToggle}
+                            />
+                          );
+                        default:
+                          return <InfoEntry log={log} />;
+                      }
+                    })()}
+                  </div>
                 );
-              case 'tool_result':
-                return (
-                  <ToolResultEntry
-                    key={log.id}
-                    log={log}
-                    forceExpanded={expandAllState}
-                    onManualToggle={handleManualExpandToggle}
-                  />
-                );
-              case 'thinking':
-                return (
-                  <ThinkingEntry
-                    key={log.id}
-                    log={log}
-                    isRunning={isRunning && log === executionLogs[executionLogs.length - 1]}
-                  />
-                );
-              case 'error':
-                return (
-                  <ErrorEntry
-                    key={log.id}
-                    log={log}
-                    forceExpanded={expandAllState}
-                    onManualToggle={handleManualExpandToggle}
-                  />
-                );
-              default:
-                return <InfoEntry key={log.id} log={log} />;
-            }
-          })
+              })}
+            </div>
+          </>
         )}
         <div ref={logsEndRef} />
       </div>

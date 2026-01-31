@@ -15,12 +15,17 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
+    "@tanstack/react-virtual": "^3.11.1",
     "diff2html": "^3.4.48",
+    "react-markdown": "^9.0.1",
+    "rehype-highlight": "^7.0.0",
+    "remark-gfm": "^4.0.0",
     "lucide-react": "^0.312.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "socket.io-client": "^4.7.4",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "winston": "^3.13.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.48",
