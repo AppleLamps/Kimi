@@ -6,6 +6,7 @@ import LogsPane from './components/LogsPane';
 import StatusBanner from './components/StatusBanner';
 import SessionHistory from './components/SessionHistory';
 import ModelConfigPanel from './components/ModelConfigPanel';
+import ContextUsagePanel from './components/ContextUsagePanel';
 import { getSessionStore } from './utils/sessionStore';
 import { prefetchWorkspaceTree } from './utils/workspaceCache';
 import type { DiffComment, LogEntry, ModelConfig, PersistedLogEntry, SessionRecord } from './types';
@@ -27,6 +28,8 @@ function App() {
     logs,
     pendingDiffs,
     progress,
+    pinnedFiles,
+    contextUsage,
     startTask,
     resumeSession,
     loadSessionSnapshot,
@@ -39,6 +42,8 @@ function App() {
     clearLogs,
     gitPull,
     gitPush,
+    pinFile,
+    unpinFile,
   } = useSocket();
 
   const [workspacePath, setWorkspacePath] = useState<string>('');
@@ -486,6 +491,11 @@ function App() {
             config={modelConfig}
             onChange={setModelConfig}
           />
+          <ContextUsagePanel
+            pinnedFiles={pinnedFiles}
+            contextUsage={contextUsage}
+            onUnpinFile={unpinFile}
+          />
           <div className="flex-1 min-h-0">
             <TaskPane
               isRunning={isRunning}
@@ -506,12 +516,14 @@ function App() {
             diffs={pendingDiffs}
             comments={diffComments}
             sessionId={sessionId}
+            pinnedFiles={pinnedFiles}
             onApply={applyDiff}
             onReject={rejectDiff}
             onApplyAll={applyAllDiffs}
             onRejectAll={rejectAllDiffs}
             onAddComment={handleAddDiffComment}
             onDeleteComment={handleDeleteDiffComment}
+            onPinFile={pinFile}
           />
         </div>
 

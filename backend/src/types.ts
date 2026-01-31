@@ -132,6 +132,23 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
+// Pinned file for context management
+export interface PinnedFile {
+  path: string;
+  content: string;
+  addedAt: string;
+}
+
+// Context usage information
+export interface ContextUsage {
+  currentTokens: number;
+  maxTokens: number;
+  pinnedTokens: number;
+  availableTokens: number;
+  utilizationPercent: number;
+  needsPruning: boolean;
+}
+
 // Agent state
 export interface AgentState {
   taskId: string;
@@ -142,11 +159,13 @@ export interface AgentState {
   isComplete: boolean;
   workspacePath: string;
   modelConfig: ModelConfig;
+  pinnedFiles?: PinnedFile[];
+  contextUsage?: ContextUsage;
 }
 
 // WebSocket events
 export interface AgentUpdate {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress' | 'context_update';
   data: unknown;
 }
 
@@ -169,4 +188,12 @@ export interface GitOperationRequest {
 export interface GitOperationResult {
   action: 'pull' | 'push';
   result: unknown;
+}
+
+export interface PinFileRequest {
+  path: string;
+}
+
+export interface UnpinFileRequest {
+  path: string;
 }

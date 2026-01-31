@@ -3,6 +3,7 @@ import { MoonshotClient } from '../api/moonshotClient.js';
 import { ToolExecutor } from './tools.js';
 import { SYSTEM_PROMPT, TOOL_DEFINITIONS } from './systemPrompt.js';
 import { backendConfig } from '../config.js';
+import { ContextManager } from '../utils/contextManager.js';
 import {
   ValidationError,
   formatValidationIssues,
@@ -27,6 +28,7 @@ import type {
   MoveFileParams,
   RunTestsParams,
   ModelConfig,
+  PinnedFile,
 } from '../types.js';
 
 export type UpdateCallback = (update: AgentUpdate) => void;
@@ -36,6 +38,7 @@ const MAX_ITERATIONS = backendConfig.agent.maxIterations;
 export class AgentLoop {
   private client: MoonshotClient;
   private toolExecutor: ToolExecutor;
+  private contextManager: ContextManager;
   private state: AgentState;
   private onUpdate: UpdateCallback;
   private abortController: AbortController | null = null;
@@ -60,6 +63,12 @@ export class AgentLoop {
       resolvedModelConfig.baseUrl ?? backendConfig.model.defaultBaseUrl
     );
     this.toolExecutor = new ToolExecutor(workspacePath);
+    this.contextManager = new ContextManager({
+      maxContextTokens: backendConfig.contextManagement.maxContextTokens,
+      targetContextTokens: backendConfig.contextManagement.targetContextTokens,
+      summarizationThreshold: backendConfig.contextManagement.summarizationThreshold,
+      preserveRecentMessages: backendConfig.contextManagement.preserveRecentMessages,
+    });
     this.onUpdate = onUpdate;
 
     this.state = {
@@ -74,6 +83,11 @@ export class AgentLoop {
       isComplete: false,
       workspacePath,
       modelConfig: resolvedModelConfig,
+      pinnedFiles: [],
+      contextUsage: this.contextManager.getContextUsage([
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: task },
+      ]),
     };
   }
 
@@ -90,6 +104,8 @@ export class AgentLoop {
     isComplete: boolean;
     workspacePath: string;
     modelConfig: ModelConfig;
+    pinnedFiles: PinnedFile[];
+    contextUsage: ReturnType<ContextManager['getContextUsage']>;
   } {
     return {
       taskId: this.state.taskId,
@@ -100,6 +116,12 @@ export class AgentLoop {
       isComplete: this.state.isComplete,
       workspacePath: this.state.workspacePath,
       modelConfig: this.state.modelConfig,
+      pinnedFiles: this.contextManager.getPinnedFiles().map((file) => ({
+        path: file.path,
+        content: file.content,
+        addedAt: file.addedAt.toISOString(),
+      })),
+      contextUsage: this.contextManager.getContextUsage(this.state.messages),
     };
   }
 
@@ -143,6 +165,79 @@ export class AgentLoop {
     this.state.isRunning = false;
   }
 
+  async pinFile(path: string): Promise<void> {
+    try {
+      const content = await this.toolExecutor.readFile({ path });
+      this.contextManager.pinFile(path, content);
+      
+      // Update state
+      this.state.pinnedFiles = this.contextManager.getPinnedFiles().map((file) => ({
+        path: file.path,
+        content: file.content,
+        addedAt: file.addedAt.toISOString(),
+      }));
+      this.state.contextUsage = this.contextManager.getContextUsage(this.state.messages);
+
+      // Notify UI
+      this.onUpdate({
+        type: 'context_update',
+        data: {
+          pinnedFiles: this.state.pinnedFiles,
+          contextUsage: this.state.contextUsage,
+        },
+      });
+
+      this.onUpdate({
+        type: 'info',
+        data: { message: `Pinned file: ${path}` },
+      });
+    } catch (error) {
+      this.onUpdate({
+        type: 'error',
+        data: { message: `Failed to pin file ${path}: ${(error as Error).message}` },
+      });
+      throw error;
+    }
+  }
+
+  unpinFile(path: string): void {
+    this.contextManager.unpinFile(path);
+    
+    // Update state
+    this.state.pinnedFiles = this.contextManager.getPinnedFiles().map((file) => ({
+      path: file.path,
+      content: file.content,
+      addedAt: file.addedAt.toISOString(),
+    }));
+    this.state.contextUsage = this.contextManager.getContextUsage(this.state.messages);
+
+    // Notify UI
+    this.onUpdate({
+      type: 'context_update',
+      data: {
+        pinnedFiles: this.state.pinnedFiles,
+        contextUsage: this.state.contextUsage,
+      },
+    });
+
+    this.onUpdate({
+      type: 'info',
+      data: { message: `Unpinned file: ${path}` },
+    });
+  }
+
+  private updateContextUsage(): void {
+    this.state.contextUsage = this.contextManager.getContextUsage(this.state.messages);
+    
+    this.onUpdate({
+      type: 'context_update',
+      data: {
+        pinnedFiles: this.state.pinnedFiles,
+        contextUsage: this.state.contextUsage,
+      },
+    });
+  }
+
   private async runLoop(): Promise<void> {
     let iterations = 0;
 
@@ -160,6 +255,10 @@ export class AgentLoop {
         type: 'thinking',
         data: { iteration: iterations },
       });
+
+      // Apply context management before making API call
+      this.state.messages = this.contextManager.manageContext(this.state.messages);
+      this.updateContextUsage();
 
       // Get next action from the model
       let response: Awaited<ReturnType<MoonshotClient['chat']>>;

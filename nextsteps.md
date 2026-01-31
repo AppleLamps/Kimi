@@ -146,10 +146,10 @@ This document outlines potential features, improvements, and enhancements for th
 
 #### Context Management
 
-- [ ] Smart context window management
-- [ ] Automatic context summarization for long tasks
-- [ ] Pinned context (files always in context)
-- [ ] Context usage visualization
+- [x] Smart context window management
+- [x] Automatic context summarization for long tasks
+- [x] Pinned context (files always in context)
+- [x] Context usage visualization
 
 #### Templates & Presets
 

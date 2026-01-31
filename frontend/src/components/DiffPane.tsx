@@ -19,9 +19,10 @@ import {
     Trash2,
     ArrowRightLeft,
     Eye,
+    Pin,
 } from 'lucide-react';
 import { DiffEditor } from '@monaco-editor/react';
-import type { DiffComment, DiffResult } from '../types';
+import type { DiffComment, DiffResult, PinnedFile } from '../types';
 import type * as Monaco from 'monaco-editor';
 
 const BACKEND_URL = 'http://localhost:3001';
@@ -30,12 +31,14 @@ interface DiffPaneProps {
     diffs: DiffResult[];
     comments: DiffComment[];
     sessionId: string | null;
+    pinnedFiles: PinnedFile[];
     onApply: (diffId: string) => void;
     onReject: (diffId: string) => void;
     onApplyAll: () => void;
     onRejectAll: () => void;
     onAddComment: (comment: DiffComment) => void;
     onDeleteComment: (commentId: string) => void;
+    onPinFile: (path: string) => void;
 }
 
 interface DiffViewerProps {
@@ -47,11 +50,13 @@ interface DiffViewerProps {
     contentLoaded: boolean;
     contentLoading: boolean;
     contentError?: string;
+    isPinned: boolean;
     onRequestContent: () => void;
     onApply: () => void;
     onReject: () => void;
     onAddComment: (comment: DiffComment) => void;
     onDeleteComment: (commentId: string) => void;
+    onPinFile: () => void;
 }
 
 type DiffViewMode = 'unified' | 'side-by-side';
@@ -225,11 +230,13 @@ function DiffViewer({
     contentLoaded,
     contentLoading,
     contentError,
+    isPinned,
     onRequestContent,
     onApply,
     onReject,
     onAddComment,
     onDeleteComment,
+    onPinFile,
 }: DiffViewerProps) {
     const [expanded, setExpanded] = useState(true);
     const [copied, setCopied] = useState(false);
@@ -545,6 +552,21 @@ function DiffViewer({
                         <button
                             onClick={(event) => {
                                 event.stopPropagation();
+                                onPinFile();
+                            }}
+                            className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                                isPinned
+                                    ? 'bg-kimi-blue/20 text-kimi-blue border border-kimi-blue/30'
+                                    : 'bg-kimi-gray hover:bg-kimi-light-gray text-kimi-text-secondary border border-kimi-border'
+                            }`}
+                            title={isPinned ? 'File is pinned to context' : 'Pin file to always keep in context'}
+                        >
+                            <Pin size={14} />
+                            {isPinned ? 'Pinned' : 'Pin'}
+                        </button>
+                        <button
+                            onClick={(event) => {
+                                event.stopPropagation();
                                 onReject();
                             }}
                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-kimi-red/10 hover:bg-kimi-red/20 text-kimi-red border border-kimi-red/30 rounded-lg transition-all duration-200"
@@ -573,12 +595,14 @@ export default function DiffPane({
     diffs,
     comments,
     sessionId,
+    pinnedFiles,
     onApply,
     onReject,
     onApplyAll,
     onRejectAll,
     onAddComment,
     onDeleteComment,
+    onPinFile,
 }: DiffPaneProps) {
     const [viewMode, setViewMode] = useState<DiffViewMode>('unified');
     const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
@@ -978,11 +1002,13 @@ export default function DiffPane({
                                                 contentLoaded={contentLoaded}
                                                 contentLoading={cached?.loading ?? false}
                                                 contentError={cached?.error}
+                                                isPinned={pinnedFiles.some(pf => pf.path === diff.path)}
                                                 onRequestContent={() => requestDiffContent(diff.id)}
                                                 onApply={() => onApply(diff.id)}
                                                 onReject={() => onReject(diff.id)}
                                                 onAddComment={onAddComment}
                                                 onDeleteComment={onDeleteComment}
+                                                onPinFile={() => onPinFile(diff.path)}
                                             />
                                         </div>
                                     );
