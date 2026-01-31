@@ -7,6 +7,8 @@ A local-first AI coding GUI powered by Kimi K2.5, featuring a single autonomous 
 - **Plan-Act-Observe Loop**: Agent plans before acting, uses tools to gather context, and iterates on results
 - **Explicit Tool System**: Four safe tools (`list_files`, `read_file`, `propose_file_change`, `run_command`)
 - **Diff-First Safety Model**: All file changes require explicit user approval
+- **Smart Context Management**: Automatic context window management with summarization for long tasks
+- **Pinned Context**: Keep important files always accessible to the agent
 - **Three-Pane Interface**:
   - Task/Chat Pane: Enter tasks, see agent reasoning
   - Diff Review Pane: Review and approve/reject proposed changes
@@ -93,7 +95,24 @@ npm run electron:dev
    - Propose file changes as diffs
 4. Review proposed diffs in the center pane
 5. Click "Apply" to write changes or "Reject" to skip
-6. Monitor execution logs in the right pane
+6. Pin important files to keep them in context using the "Pin" button in the diff viewer
+7. Monitor context usage and pinned files in the Context Usage panel
+8. Monitor execution logs in the right pane
+
+### Context Management
+
+The agent automatically manages its context window to ensure optimal performance during long tasks:
+
+- **Automatic Pruning**: When context usage reaches 85% of the limit, older messages are automatically pruned while preserving recent context and system prompts
+- **Smart Summarization**: For very long conversations, older messages are summarized to save tokens while retaining key information
+- **Pinned Files**: Pin important files to ensure they remain in context even during pruning
+- **Usage Visualization**: Monitor current token usage, available tokens, and the impact of pinned files in real-time
+
+You can view context usage by clicking on the "Context Usage" panel in the left sidebar. This shows:
+- Current token utilization percentage
+- Token counts (current vs. maximum)
+- Pinned files and their token usage
+- Warnings when context needs pruning
 
 ## Tools Available to the Agent
 
@@ -110,6 +129,7 @@ npm run electron:dev
 - **User approval required**: Files are only modified after explicit approval
 - **Sandboxed execution**: Commands run with safety checks
 - **Path validation**: Tool paths are validated to stay within workspace
+- **Context management**: Automatic context window management prevents token limit errors and maintains conversation quality
 
 ## Technology Stack
 
