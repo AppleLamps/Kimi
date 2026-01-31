@@ -105,6 +105,36 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function' as const,
     function: {
+      name: 'propose_file_changes',
+      description: 'Propose multiple file changes in one request. Each change must include the complete new content for the file. This creates multiple diffs that require user approval before any file is modified.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          changes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                path: {
+                  type: 'string',
+                  description: 'The relative path to the file to change (or create)',
+                },
+                new_content: {
+                  type: 'string',
+                  description: 'The complete new content for the file',
+                },
+              },
+              required: ['path', 'new_content'],
+            },
+          },
+        },
+        required: ['changes'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'run_command',
       description: 'Run a shell command in the workspace directory. Returns stdout, stderr, and exit code.',
       parameters: {

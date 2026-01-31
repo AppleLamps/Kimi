@@ -12,6 +12,7 @@ import type {
   ListFilesParams,
   ReadFileParams,
   ProposeFileChangeParams,
+  ProposeFileChangesParams,
   RunCommandParams,
   CommandResult,
   DiffResult,
@@ -47,6 +48,33 @@ export class ToolExecutor {
 
   private clearListFilesCache() {
     this.listFilesCache.clear();
+  }
+
+  private async applyDiffContent(diff: DiffResult): Promise<void> {
+    if (diff.operation === 'delete') {
+      const filePath = this.resolvePath(diff.path);
+      await fs.rm(filePath, { force: true });
+      return;
+    }
+
+    if (diff.operation === 'move') {
+      if (!diff.oldPath || !diff.newPath) {
+        throw new Error('Move operation missing oldPath/newPath');
+      }
+      const fromPath = this.resolvePath(diff.oldPath);
+      const toPath = this.resolvePath(diff.newPath);
+      await fs.mkdir(path.dirname(toPath), { recursive: true });
+      await fs.rename(fromPath, toPath);
+      return;
+    }
+
+    const filePath = this.resolvePath(diff.path);
+    if (diff.proposed === undefined) {
+      throw new Error(`Diff content missing for ${diff.path}`);
+    }
+
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, diff.proposed, 'utf-8');
   }
 
   async listFiles(params: ListFilesParams): Promise<string[]> {
@@ -130,13 +158,52 @@ export class ToolExecutor {
     return diffResult;
   }
 
+  async proposeFileChanges(params: ProposeFileChangesParams): Promise<DiffResult[]> {
+    const created: DiffResult[] = [];
+
+    try {
+      for (const change of params.changes) {
+        const diff = await this.proposeFileChange(change);
+        created.push(diff);
+      }
+      return created;
+    } catch (error) {
+      for (const diff of created) {
+        this.pendingDiffs.delete(diff.id);
+      }
+      throw error;
+    }
+  }
+
   async runCommand(params: RunCommandParams): Promise<CommandResult> {
     // Basic command validation - block obviously dangerous commands
     const blockedPatterns = [
       /rm\s+-rf\s+[\/~]/,
+      /rm\s+-r\s+[\/~]/,
+      /rmdir\s+\/s\s+\/q/i,
+      /rd\s+\/s\s+\/q/i,
       />\s*\/dev\/sd/,
       /mkfs\./,
+      /mkfs\s+/,
+      /fdisk\s+/,
+      /parted\s+/,
+      /diskpart\b/i,
+      /format\s+[a-z]:/i,
       /dd\s+if=/,
+      /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/,
+      /shutdown\b/i,
+      /reboot\b/i,
+      /poweroff\b/i,
+      /halt\b/i,
+      /kill\s+-9\s+1\b/,
+      /curl\b[^\n|]+\|\s*(sh|bash|zsh)\b/i,
+      /wget\b[^\n|]+\|\s*(sh|bash|zsh)\b/i,
+      /Invoke-Expression\b/i,
+      /\bIEX\b/i,
+      /Add-MpPreference\b/i,
+      /Remove-MpPreference\b/i,
+      /Set-MpPreference\b/i,
+      /cipher\s+\/w:/i,
     ];
 
     for (const pattern of blockedPatterns) {
@@ -178,36 +245,68 @@ export class ToolExecutor {
       throw new Error(`Diff not found: ${diffId}`);
     }
 
-    if (diff.operation === 'delete') {
-      const filePath = this.resolvePath(diff.path);
-      await fs.rm(filePath, { force: true });
-    } else if (diff.operation === 'move') {
-      if (!diff.oldPath || !diff.newPath) {
-        throw new Error('Move operation missing oldPath/newPath');
-      }
-      const fromPath = this.resolvePath(diff.oldPath);
-      const toPath = this.resolvePath(diff.newPath);
-      await fs.mkdir(path.dirname(toPath), { recursive: true });
-      await fs.rename(fromPath, toPath);
-    } else {
-      const filePath = this.resolvePath(diff.path);
-
-      if (diff.proposed === undefined) {
-        throw new Error(`Diff content missing for ${diff.path}`);
-      }
-
-      // Ensure parent directory exists
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-
-      // Write the new content
-      await fs.writeFile(filePath, diff.proposed, 'utf-8');
-    }
+    await this.applyDiffContent(diff);
 
     // Remove from pending
     this.pendingDiffs.delete(diffId);
     this.clearListFilesCache();
 
     return true;
+  }
+
+  async applyDiffsAtomically(diffs: DiffResult[]): Promise<DiffResult[]> {
+    if (diffs.length === 0) return [];
+
+    const snapshots = new Map<string, { exists: boolean; content?: string }>();
+
+    const recordSnapshot = async (relativePath: string) => {
+      if (snapshots.has(relativePath)) return;
+      const filePath = this.resolvePath(relativePath);
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        snapshots.set(relativePath, { exists: true, content });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          snapshots.set(relativePath, { exists: false });
+          return;
+        }
+        throw error;
+      }
+    };
+
+    for (const diff of diffs) {
+      if (diff.operation === 'move') {
+        if (!diff.oldPath || !diff.newPath) {
+          throw new Error('Move operation missing oldPath/newPath');
+        }
+        await recordSnapshot(diff.oldPath);
+        await recordSnapshot(diff.newPath);
+      } else {
+        await recordSnapshot(diff.path);
+      }
+    }
+
+    try {
+      for (const diff of diffs) {
+        await this.applyDiffContent(diff);
+      }
+
+      diffs.forEach((diff) => this.pendingDiffs.delete(diff.id));
+      this.clearListFilesCache();
+      return diffs;
+    } catch (error) {
+      for (const [relativePath, snapshot] of snapshots.entries()) {
+        const filePath = this.resolvePath(relativePath);
+        if (snapshot.exists) {
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+          await fs.writeFile(filePath, snapshot.content ?? '', 'utf-8');
+        } else {
+          await fs.rm(filePath, { force: true });
+        }
+      }
+      this.clearListFilesCache();
+      throw new Error(`Atomic apply failed: ${(error as Error).message}`);
+    }
   }
 
   rejectDiff(diffId: string): boolean {

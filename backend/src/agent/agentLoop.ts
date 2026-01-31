@@ -17,6 +17,7 @@ import type {
   ListFilesParams,
   ReadFileParams,
   ProposeFileChangeParams,
+  ProposeFileChangesParams,
   RunCommandParams,
   SearchFilesParams,
   GitOperationsParams,
@@ -322,6 +323,21 @@ export class AgentLoop {
           return `Diff proposed for ${diff.path}. Waiting for user approval. Diff ID: ${diff.id}`;
         }
 
+        case 'propose_file_changes': {
+          const diffs = await this.toolExecutor.proposeFileChanges(
+            validatedArgs as ProposeFileChangesParams
+          );
+
+          diffs.forEach((diff) => {
+            this.onUpdate({
+              type: 'diff_proposed',
+              data: this.toClientDiff(diff),
+            });
+          });
+
+          return `Diffs proposed for ${diffs.length} file(s). Waiting for user approval. Diff IDs: ${diffs.map((diff) => diff.id).join(', ')}`;
+        }
+
         case 'run_command': {
           const result = await this.toolExecutor.runCommand(
             validatedArgs as RunCommandParams
@@ -460,19 +476,12 @@ export class AgentLoop {
 
   async applyAllDiffs(): Promise<DiffResult[]> {
     const pending = this.toolExecutor.getPendingDiffs();
-    const applied: DiffResult[] = [];
-
-    for (const diff of pending) {
-      const result = await this.applyDiff(diff.id);
-      if (result) {
-        applied.push(result);
-      }
-    }
+    const applied = await this.toolExecutor.applyDiffsAtomically(pending);
 
     if (applied.length > 0) {
       this.state.messages.push({
         role: 'user',
-        content: `[System] All pending diffs (${applied.length}) have been approved and applied.`,
+        content: `[System] All pending diffs (${applied.length}) have been approved and applied atomically.`,
       });
     }
 

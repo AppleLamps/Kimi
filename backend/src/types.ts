@@ -43,6 +43,13 @@ export interface ProposeFileChangeParams {
   new_content: string;
 }
 
+export interface ProposeFileChangesParams {
+  changes: Array<{
+    path: string;
+    new_content: string;
+  }>;
+}
+
 export interface RunCommandParams {
   command: string;
 }

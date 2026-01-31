@@ -18,6 +18,7 @@ import {
     MessageSquarePlus,
     Trash2,
     ArrowRightLeft,
+    Eye,
 } from 'lucide-react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffComment, DiffResult } from '../types';
@@ -583,6 +584,9 @@ export default function DiffPane({
     const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
     const [selectedDiffId, setSelectedDiffId] = useState<string | null>(null);
     const [diffContentById, setDiffContentById] = useState<Record<string, { original: string; proposed: string; loaded: boolean; loading: boolean; error?: string }>>({});
+    const [previewExpanded, setPreviewExpanded] = useState(false);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewError, setPreviewError] = useState<string | null>(null);
     const treeParentRef = useRef<HTMLDivElement | null>(null);
     const diffListParentRef = useRef<HTMLDivElement | null>(null);
     const diffRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -679,6 +683,25 @@ export default function DiffPane({
         }
     };
 
+    const loadAllDiffContents = async () => {
+        if (!sessionId) {
+            setPreviewError('No active session.');
+            return;
+        }
+
+        setPreviewError(null);
+        setPreviewLoading(true);
+        try {
+            await Promise.all(diffs.map((diff) => requestDiffContent(diff.id)));
+            setPreviewExpanded(true);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to load diff contents.';
+            setPreviewError(message);
+        } finally {
+            setPreviewLoading(false);
+        }
+    };
+
     const renderTreeNode = (item: FlatTreeNode) => {
         const { node, depth } = item;
         const paddingLeft = 12 + depth * 12;
@@ -727,6 +750,28 @@ export default function DiffPane({
         return acc + lines.filter((l) => l.type === 'remove').length;
     }, 0);
 
+    const impactItems = useMemo(() => diffs.map((diff) => {
+        const lines = parseDiff(diff.diff);
+        const added = lines.filter((l) => l.type === 'add').length;
+        const removed = lines.filter((l) => l.type === 'remove').length;
+        const operation = diff.operation ?? (diff.original !== undefined ? 'modify' : 'create');
+        const contentStatus = diffContentById[diff.id];
+        const loaded = contentStatus?.loaded ?? diff.original !== undefined || diff.proposed !== undefined;
+        return {
+            id: diff.id,
+            path: diff.path,
+            added,
+            removed,
+            operation,
+            loaded,
+        };
+    }), [diffs, diffContentById]);
+
+    const operationCounts = useMemo(() => impactItems.reduce<Record<string, number>>((acc, item) => {
+        acc[item.operation] = (acc[item.operation] ?? 0) + 1;
+        return acc;
+    }, {}), [impactItems]);
+
     return (
         <div className="flex flex-col h-full">
             <div className="pane-header">
@@ -757,6 +802,22 @@ export default function DiffPane({
                         <Columns2 size={14} />
                         {viewMode === 'side-by-side' ? 'Side-by-side' : 'Unified'}
                     </button>
+                    {diffs.length > 0 && (
+                        <button
+                            onClick={() => {
+                                if (previewExpanded) {
+                                    setPreviewExpanded(false);
+                                } else {
+                                    void loadAllDiffContents();
+                                }
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-kimi-purple hover:bg-kimi-purple/10 rounded-lg transition-colors"
+                            title="Preview full impact before applying"
+                        >
+                            <Eye size={14} />
+                            {previewExpanded ? 'Hide Preview' : 'Preview Impact'}
+                        </button>
+                    )}
                     {diffs.length > 1 && (
                         <>
                             <button
@@ -770,10 +831,10 @@ export default function DiffPane({
                             <button
                                 onClick={onApplyAll}
                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-kimi-green hover:bg-kimi-green/10 rounded-lg transition-colors"
-                                title="Apply all changes"
+                                title="Apply all changes atomically"
                             >
                                 <CheckCheck size={14} />
-                                Apply All
+                                Apply All (Atomic)
                             </button>
                         </>
                     )}
@@ -793,6 +854,62 @@ export default function DiffPane({
                     </div>
                 ) : (
                     <>
+                        <div className="rounded-xl border border-kimi-border bg-kimi-darker/60 p-4">
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                                <div className="flex items-center gap-2 text-xs font-semibold text-kimi-text-secondary">
+                                    <Eye size={14} className="text-kimi-purple" />
+                                    Full Impact Preview
+                                </div>
+                                <div className="text-[10px] text-kimi-text-muted">
+                                    {previewLoading ? 'Loading contents...' : previewExpanded ? 'Ready' : 'Not loaded'}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-kimi-text-muted mb-3">
+                                <span className="badge badge-purple">{diffs.length} file{diffs.length !== 1 ? 's' : ''}</span>
+                                <span className="text-kimi-green">+{totalAdded}</span>
+                                <span className="text-kimi-red">-{totalRemoved}</span>
+                                {Object.entries(operationCounts).map(([operation, count]) => (
+                                    <span key={operation} className="badge badge-info text-[10px] py-0.5">
+                                        {operation.toUpperCase()} {count}
+                                    </span>
+                                ))}
+                            </div>
+
+                            {previewError && (
+                                <div className="text-[11px] text-kimi-red mb-2">{previewError}</div>
+                            )}
+
+                            {previewExpanded ? (
+                                <div className="grid grid-cols-1 gap-2 text-[11px]">
+                                    {impactItems.map((item) => (
+                                        <div
+                                            key={item.id}
+                                            className="flex items-center justify-between gap-3 rounded-md border border-kimi-border bg-kimi-darker/80 px-3 py-2"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <span className="text-kimi-text-secondary truncate">{item.path}</span>
+                                                <span className="badge badge-info text-[10px] py-0.5">
+                                                    {item.operation.toUpperCase()}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2 font-mono">
+                                                <span className="text-kimi-green">+{item.added}</span>
+                                                <span className="text-kimi-red">-{item.removed}</span>
+                                                <span className={`text-[10px] ${item.loaded ? 'text-kimi-green' : 'text-kimi-text-muted'}`}>
+                                                    {item.loaded ? 'content loaded' : 'content pending'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-[11px] text-kimi-text-muted">
+                                    Load all diff contents to preview the full impact before applying.
+                                </div>
+                            )}
+                        </div>
+
                         <div className="rounded-xl border border-kimi-border bg-kimi-darker/50 p-3">
                             <div className="flex items-center gap-2 text-xs font-semibold text-kimi-text-secondary mb-2">
                                 <FileCode size={14} className="text-kimi-purple" />

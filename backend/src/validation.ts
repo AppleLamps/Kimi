@@ -135,6 +135,21 @@ export const proposeFileChangeSchema = z
     })
     .strict();
 
+export const proposeFileChangesSchema = z
+    .object({
+        changes: z
+            .array(
+                z
+                    .object({
+                        path: nonEmptyString,
+                        new_content: z.string(),
+                    })
+                    .strict()
+            )
+            .min(1, 'At least one change is required'),
+    })
+    .strict();
+
 export const runCommandSchema = z
     .object({
         command: nonEmptyString,
@@ -199,6 +214,7 @@ export const toolInputSchemas: Record<string, z.ZodTypeAny> = {
     list_files: listFilesSchema,
     read_file: readFileSchema,
     propose_file_change: proposeFileChangeSchema,
+    propose_file_changes: proposeFileChangesSchema,
     run_command: runCommandSchema,
     search_files: searchFilesSchema,
     git_operations: gitOperationsSchema,
