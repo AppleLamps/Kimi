@@ -32,7 +32,8 @@ export interface BackendServerOptions {
     workspacePath: string,
     task: string,
     onUpdate: UpdateCallback,
-    modelConfig?: ModelConfig
+    modelConfig?: ModelConfig,
+    systemPrompt?: string
   ) => AgentLoop;
   validateWorkspaceFn?: typeof validateWorkspace;
   getWorkspaceInfoFn?: typeof getWorkspaceInfo;
@@ -55,8 +56,8 @@ export function createBackendServer(
   const corsOrigins = options.corsOrigins ?? backendConfig.server.corsOrigins;
   const makeAgent =
     options.agentLoopFactory ??
-    ((key, workspacePath, task, onUpdate, modelConfig) =>
-      new AgentLoop(key, workspacePath, task, onUpdate, modelConfig));
+    ((key, workspacePath, task, onUpdate, modelConfig, systemPrompt) =>
+      new AgentLoop(key, workspacePath, task, onUpdate, modelConfig, systemPrompt));
   const validateWorkspaceFn = options.validateWorkspaceFn ?? validateWorkspace;
   const getWorkspaceInfoFn = options.getWorkspaceInfoFn ?? getWorkspaceInfo;
   const getWorkspaceTreeFn = options.getWorkspaceTreeFn ?? getWorkspaceTree;
@@ -332,7 +333,7 @@ export function createBackendServer(
       );
       if (!payload) return;
 
-      const { task, workspacePath, modelConfig } = payload;
+      const { task, workspacePath, modelConfig, systemPrompt } = payload;
 
       const isValid = await validateWorkspaceFn(workspacePath);
       if (!isValid) {
@@ -354,7 +355,14 @@ export function createBackendServer(
         baseUrl: modelConfig?.baseUrl ?? backendConfig.model.defaultBaseUrl,
       };
 
-      currentAgent = makeAgent(apiKey, workspacePath, task, onUpdate, resolvedModelConfig);
+      currentAgent = makeAgent(
+        apiKey,
+        workspacePath,
+        task,
+        onUpdate,
+        resolvedModelConfig,
+        systemPrompt
+      );
       sessionId = currentAgent.getState().taskId;
       activeSessions.set(sessionId, currentAgent);
 

@@ -140,9 +140,9 @@ This document outlines potential features, improvements, and enhancements for th
 
 #### Multi-file Operations
 
-- [ ] Batch propose changes across multiple files
-- [ ] Atomic transactions (apply all or none)
-- [ ] Preview full impact before applying
+- [x] Batch propose changes across multiple files
+- [x] Atomic transactions (apply all or none)
+- [x] Preview full impact before applying
 
 #### Context Management
 

@@ -48,7 +48,8 @@ export class AgentLoop {
     workspacePath: string,
     task: string,
     onUpdate: UpdateCallback,
-    modelConfig?: ModelConfig
+    modelConfig?: ModelConfig,
+    systemPromptOverride?: string
   ) {
     const resolvedModelConfig: ModelConfig = {
       model: modelConfig?.model ?? backendConfig.model.defaultModel,
@@ -71,11 +72,13 @@ export class AgentLoop {
     });
     this.onUpdate = onUpdate;
 
+    const systemPrompt = systemPromptOverride || SYSTEM_PROMPT;
+
     this.state = {
       taskId: uuidv4(),
       task,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: task },
       ],
       pendingDiffs: new Map(),
@@ -85,7 +88,7 @@ export class AgentLoop {
       modelConfig: resolvedModelConfig,
       pinnedFiles: [],
       contextUsage: this.contextManager.getContextUsage([
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: task },
       ]),
     };
@@ -169,7 +172,7 @@ export class AgentLoop {
     try {
       const content = await this.toolExecutor.readFile({ path });
       this.contextManager.pinFile(path, content);
-      
+
       // Update state
       this.state.pinnedFiles = this.contextManager.getPinnedFiles().map((file) => ({
         path: file.path,
@@ -202,7 +205,7 @@ export class AgentLoop {
 
   unpinFile(path: string): void {
     this.contextManager.unpinFile(path);
-    
+
     // Update state
     this.state.pinnedFiles = this.contextManager.getPinnedFiles().map((file) => ({
       path: file.path,
@@ -228,7 +231,7 @@ export class AgentLoop {
 
   private updateContextUsage(): void {
     this.state.contextUsage = this.contextManager.getContextUsage(this.state.messages);
-    
+
     this.onUpdate({
       type: 'context_update',
       data: {

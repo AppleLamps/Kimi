@@ -20,10 +20,12 @@ import {
     ArrowRightLeft,
     Eye,
     Pin,
+    Bookmark,
 } from 'lucide-react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffComment, DiffResult, PinnedFile } from '../types';
 import type * as Monaco from 'monaco-editor';
+import { libraryStore } from '../utils/libraryStore';
 
 const BACKEND_URL = 'http://localhost:3001';
 
@@ -275,6 +277,19 @@ function DiffViewer({
         });
         setCommentDraft('');
         setCommentTarget(null);
+    };
+
+    const handleSaveSnippet = () => {
+        const content = proposedContent || diff.diff;
+        const defaultTitle = isNewFile ? `Create ${fileName}` : `Improve ${fileName}`;
+        const title = window.prompt('Enter a title for this snippet:', defaultTitle);
+        if (title) {
+            libraryStore.addSnippet({
+                title,
+                content,
+                language,
+            });
+        }
     };
 
     const updateDecorations = () => {
@@ -552,13 +567,23 @@ function DiffViewer({
                         <button
                             onClick={(event) => {
                                 event.stopPropagation();
+                                handleSaveSnippet();
+                            }}
+                            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-kimi-gray hover:bg-kimi-light-gray text-kimi-text-secondary border border-kimi-border rounded-lg transition-all duration-200"
+                            title="Save as snippet to your library"
+                        >
+                            <Bookmark size={14} />
+                            Save
+                        </button>
+                        <button
+                            onClick={(event) => {
+                                event.stopPropagation();
                                 onPinFile();
                             }}
-                            className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                                isPinned
-                                    ? 'bg-kimi-blue/20 text-kimi-blue border border-kimi-blue/30'
-                                    : 'bg-kimi-gray hover:bg-kimi-light-gray text-kimi-text-secondary border border-kimi-border'
-                            }`}
+                            className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${isPinned
+                                ? 'bg-kimi-blue/20 text-kimi-blue border border-kimi-blue/30'
+                                : 'bg-kimi-gray hover:bg-kimi-light-gray text-kimi-text-secondary border border-kimi-border'
+                                }`}
                             title={isPinned ? 'File is pinned to context' : 'Pin file to always keep in context'}
                         >
                             <Pin size={14} />

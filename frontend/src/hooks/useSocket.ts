@@ -409,7 +409,13 @@ export function useSocket(): UseSocketReturn {
   const startTask = useCallback((task: string, workspacePath: string, modelConfig: ModelConfig) => {
     if (socketRef.current) {
       setPendingDiffs([]);
-      socketRef.current.emit('task:start', { task, workspacePath, modelConfig });
+      const { systemPrompt, ...restConfig } = modelConfig;
+      socketRef.current.emit('task:start', {
+        task,
+        workspacePath,
+        modelConfig: restConfig,
+        systemPrompt
+      });
     }
   }, []);
 

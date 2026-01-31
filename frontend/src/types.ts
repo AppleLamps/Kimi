@@ -85,6 +85,7 @@ export interface ModelConfig {
   temperature: number;
   maxTokens: number;
   baseUrl?: string;
+  systemPrompt?: string;
 }
 
 export interface AgentMessage {
@@ -163,4 +164,34 @@ export interface SessionRecord {
   diffComments?: DiffComment[];
   agentState?: PersistedAgentState | null;
   modelConfig?: ModelConfig | null;
+}
+
+export interface TaskPreset {
+  id: string;
+  label: string;
+  task: string;
+  icon?: string;
+  systemPromptOverride?: string;
+}
+
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  description: string;
+  task: string;
+  icon?: string;
+}
+
+export interface CodeSnippet {
+  id: string;
+  title: string;
+  content: string;
+  language: string;
+  createdAt: string;
+}
+
+export interface LibraryData {
+  presets: TaskPreset[];
+  templates: ProjectTemplate[];
+  snippets: CodeSnippet[];
 }

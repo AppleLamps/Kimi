@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, StopCircle, Trash2, Loader2, MessageSquare, Bot, User, Brain, AlertTriangle, Info, Sparkles, Copy, Pencil, RotateCcw, Check, X } from 'lucide-react';
+import { Send, StopCircle, Trash2, Loader2, MessageSquare, Bot, User, Brain, AlertTriangle, Info, Sparkles, Copy, Pencil, RotateCcw, Check, X, Bookmark } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import type { LogEntry, TokenUsage } from '../types';
+import { libraryStore } from '../utils/libraryStore';
 
 const CHAT_PAGE_SIZE = 40;
 const SCROLL_BOTTOM_THRESHOLD = 80;
@@ -17,6 +18,8 @@ interface TaskPaneProps {
   onStopTask: () => void;
   onContinue: (message: string) => void;
   onClearLogs: () => void;
+  pendingTaskInput?: string | null;
+  onConsumePendingInput?: () => void;
 }
 
 export default function TaskPane({
@@ -28,6 +31,8 @@ export default function TaskPane({
   onStopTask,
   onContinue,
   onClearLogs,
+  pendingTaskInput,
+  onConsumePendingInput,
 }: TaskPaneProps) {
   const [input, setInput] = useState('');
   const [hasStarted, setHasStarted] = useState(false);
@@ -47,6 +52,25 @@ export default function TaskPane({
     if (!showReasoning && log.type === 'thinking') return false;
     return ['message', 'error', 'info', 'thinking', 'user'].includes(log.type);
   });
+
+  useEffect(() => {
+    if (pendingTaskInput) {
+      setInput(prev => {
+        const next = prev ? `${prev}\n${pendingTaskInput}` : pendingTaskInput;
+        // Trigger resize
+        if (inputRef.current) {
+          setTimeout(() => {
+            if (inputRef.current) {
+              inputRef.current.style.height = 'auto';
+              inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 120) + 'px';
+            }
+          }, 0);
+        }
+        return next;
+      });
+      onConsumePendingInput?.();
+    }
+  }, [pendingTaskInput, onConsumePendingInput]);
 
   const visibleChatLogs = useMemo(() => {
     return chatLogs.filter((log) => !hiddenMessageIds[log.id]);
@@ -202,6 +226,23 @@ export default function TaskPane({
 
   const handleCopyMessage = async (content: string) => {
     await navigator.clipboard.writeText(content);
+  };
+
+  const handleSaveSnippet = async (content: string) => {
+    const title = prompt('Enter a title for this snippet:', 'Saved Snippet');
+    if (!title) return;
+
+    try {
+      await libraryStore.addSnippet({
+        title,
+        content,
+        language: 'markdown' // Default for full messages
+      });
+      alert('Snippet saved to library!');
+    } catch (error) {
+      console.error('Failed to save snippet:', error);
+      alert('Failed to save snippet.');
+    }
   };
 
   const handleStartEdit = (log: LogEntry) => {
@@ -370,6 +411,15 @@ export default function TaskPane({
                           >
                             <Copy size={12} className="text-kimi-text-muted" />
                           </button>
+                          {isAssistant && (
+                            <button
+                              onClick={() => handleSaveSnippet(displayContent)}
+                              className="p-1 rounded hover:bg-kimi-light-gray/60 transition-colors"
+                              title="Save as snippet"
+                            >
+                              <Bookmark size={12} className="text-kimi-text-muted" />
+                            </button>
+                          )}
                           {isUser && !isEditing && (
                             <button
                               onClick={() => handleStartEdit(log)}

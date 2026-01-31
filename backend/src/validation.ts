@@ -93,6 +93,7 @@ export const taskStartSchema = z
         task: nonEmptyString,
         workspacePath: nonEmptyString,
         modelConfig: modelConfigSchema.optional(),
+        systemPrompt: z.string().optional(),
     })
     .strict();
 

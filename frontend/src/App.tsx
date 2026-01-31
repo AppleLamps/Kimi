@@ -7,10 +7,11 @@ import StatusBanner from './components/StatusBanner';
 import SessionHistory from './components/SessionHistory';
 import ModelConfigPanel from './components/ModelConfigPanel';
 import ContextUsagePanel from './components/ContextUsagePanel';
+import LibraryPane from './components/LibraryPane';
 import { getSessionStore } from './utils/sessionStore';
 import { prefetchWorkspaceTree } from './utils/workspaceCache';
-import type { DiffComment, LogEntry, ModelConfig, PersistedLogEntry, SessionRecord } from './types';
-import { FolderOpen, Eye, EyeOff, Sparkles, Zap, Sun, Moon, ChevronDown } from 'lucide-react';
+import type { CodeSnippet, DiffComment, LogEntry, ModelConfig, PersistedLogEntry, ProjectTemplate, SessionRecord, TaskPreset } from './types';
+import { FolderOpen, Eye, EyeOff, Sparkles, Zap, Sun, Moon, ChevronDown, MessageSquare, Library, Settings } from 'lucide-react';
 
 const THEME_STORAGE_KEY = 'kimi.theme';
 const WORKSPACE_STORAGE_KEY = 'kimi.recentWorkspaces';
@@ -48,6 +49,7 @@ function App() {
 
   const [workspacePath, setWorkspacePath] = useState<string>('');
   const [showReasoningOutput, setShowReasoningOutput] = useState(true);
+  const [activeView, setActiveView] = useState<'chat' | 'library'>('chat');
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [sessionSearch, setSessionSearch] = useState('');
   const [currentTaskTitle, setCurrentTaskTitle] = useState('');
@@ -306,6 +308,31 @@ function App() {
     setDiffComments((prev) => prev.filter((comment) => comment.id !== commentId));
   };
 
+  const handleUsePreset = (preset: TaskPreset) => {
+    if (preset.systemPromptOverride) {
+      setModelConfig(prev => ({ ...prev, systemPrompt: preset.systemPromptOverride }));
+    }
+    setActiveView('chat');
+    // We'll need a way to populate the TaskPane input. 
+    // For now, we'll store it in a temporary state that TaskPane can consume.
+    setPendingTaskInput(preset.task);
+  };
+
+  const handleUseTemplate = (template: ProjectTemplate) => {
+    setActiveView('chat');
+    setPendingTaskInput(template.task);
+  };
+
+  const handleUseSnippet = (snippet: CodeSnippet) => {
+    setActiveView('chat');
+    setPendingTaskInput(prev => {
+      const prefix = prev ? `${prev}\n\n` : '';
+      return `${prefix}Code context:\n\`\`\`${snippet.language}\n${snippet.content}\n\`\`\``;
+    });
+  };
+
+  const [pendingTaskInput, setPendingTaskInput] = useState<string | null>(null);
+
   const handleSelectWorkspace = (path: string) => {
     setWorkspacePath(path);
     addRecentWorkspace(path);
@@ -477,37 +504,98 @@ function App() {
 
       {/* Main content */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Left: Task/Chat Pane */}
-        <div className="w-[380px] min-w-[320px] border-r border-kimi-border flex flex-col bg-kimi-darker/30">
-          <SessionHistory
-            sessions={sessions}
-            searchValue={sessionSearch}
-            onSearchChange={setSessionSearch}
-            onResume={handleResumeSession}
-            onExport={handleExportSession}
-            onImport={handleImportSession}
-          />
-          <ModelConfigPanel
-            config={modelConfig}
-            onChange={setModelConfig}
-          />
-          <ContextUsagePanel
-            pinnedFiles={pinnedFiles}
-            contextUsage={contextUsage}
-            onUnpinFile={unpinFile}
-          />
-          <div className="flex-1 min-h-0">
-            <TaskPane
-              isRunning={isRunning}
-              isConnected={isConnected}
-              logs={logs}
-              showReasoning={showReasoningOutput}
-              onStartTask={handleStartTask}
-              onStopTask={stopTask}
-              onContinue={continueTask}
-              onClearLogs={clearLogs}
-            />
+        {/* Navigation Rail */}
+        <div className="w-[68px] bg-kimi-darker border-r border-kimi-border flex flex-col items-center py-6 gap-6 no-drag">
+          <button
+            onClick={() => setActiveView('chat')}
+            className={`p-3.5 rounded-2xl transition-all duration-300 relative group ${activeView === 'chat'
+              ? 'bg-kimi-blue text-white shadow-lg shadow-kimi-blue/20 scale-110'
+              : 'text-kimi-text-muted hover:bg-kimi-gray hover:text-kimi-text hover:scale-105'
+              }`}
+            title="Chat"
+          >
+            <MessageSquare size={24} />
+            {activeView === 'chat' && (
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-kimi-blue rounded-r-full" />
+            )}
+            <span className="absolute left-[80px] px-2 py-1 bg-kimi-dark text-white text-[10px] rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+              Active Task
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveView('library')}
+            className={`p-3.5 rounded-2xl transition-all duration-300 relative group ${activeView === 'library'
+              ? 'bg-kimi-blue text-white shadow-lg shadow-kimi-blue/20 scale-110'
+              : 'text-kimi-text-muted hover:bg-kimi-gray hover:text-kimi-text hover:scale-105'
+              }`}
+            title="Library"
+          >
+            <Library size={24} />
+            {activeView === 'library' && (
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-kimi-blue rounded-r-full" />
+            )}
+            <span className="absolute left-[80px] px-2 py-1 bg-kimi-dark text-white text-[10px] rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+              Library
+            </span>
+          </button>
+
+          <div className="mt-auto pb-4">
+            <button
+              className="p-3.5 text-kimi-text-muted hover:bg-kimi-gray hover:text-kimi-text rounded-2xl transition-all duration-300 hover:scale-105 group relative"
+              title="Settings"
+            >
+              <Settings size={24} />
+              <span className="absolute left-[80px] px-2 py-1 bg-kimi-dark text-white text-[10px] rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+                Settings
+              </span>
+            </button>
           </div>
+        </div>
+
+        {/* Left: Functional Panels */}
+        <div className="w-[380px] min-w-[320px] border-r border-kimi-border flex flex-col bg-kimi-darker/30">
+          {activeView === 'chat' ? (
+            <>
+              <SessionHistory
+                sessions={sessions}
+                searchValue={sessionSearch}
+                onSearchChange={setSessionSearch}
+                onResume={handleResumeSession}
+                onExport={handleExportSession}
+                onImport={handleImportSession}
+              />
+              <ModelConfigPanel
+                config={modelConfig}
+                onChange={setModelConfig}
+              />
+              <ContextUsagePanel
+                pinnedFiles={pinnedFiles}
+                contextUsage={contextUsage}
+                onUnpinFile={unpinFile}
+              />
+              <div className="flex-1 min-h-0">
+                <TaskPane
+                  isRunning={isRunning}
+                  isConnected={isConnected}
+                  logs={logs}
+                  showReasoning={showReasoningOutput}
+                  onStartTask={handleStartTask}
+                  onStopTask={stopTask}
+                  onContinue={continueTask}
+                  onClearLogs={clearLogs}
+                  pendingTaskInput={pendingTaskInput}
+                  onConsumePendingInput={() => setPendingTaskInput(null)}
+                />
+              </div>
+            </>
+          ) : (
+            <LibraryPane
+              onUsePreset={handleUsePreset}
+              onUseTemplate={handleUseTemplate}
+              onUseSnippet={handleUseSnippet}
+            />
+          )}
         </div>
 
         {/* Center: Diff Review Pane */}

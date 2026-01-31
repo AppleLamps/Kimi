@@ -14,6 +14,10 @@ const getSessionsFilePath = () => {
   return path.join(app.getPath('userData'), 'sessions.json');
 };
 
+const getLibraryFilePath = () => {
+  return path.join(app.getPath('userData'), 'library.json');
+};
+
 const readSessions = async (): Promise<unknown[]> => {
   try {
     const content = await fs.readFile(getSessionsFilePath(), 'utf-8');
@@ -26,6 +30,20 @@ const readSessions = async (): Promise<unknown[]> => {
 const writeSessions = async (sessions: unknown[]): Promise<void> => {
   await fs.mkdir(app.getPath('userData'), { recursive: true });
   await fs.writeFile(getSessionsFilePath(), JSON.stringify(sessions, null, 2), 'utf-8');
+};
+
+const readLibrary = async (): Promise<unknown> => {
+  try {
+    const content = await fs.readFile(getLibraryFilePath(), 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return { presets: [], templates: [], snippets: [] };
+  }
+};
+
+const writeLibrary = async (library: unknown): Promise<void> => {
+  await fs.mkdir(app.getPath('userData'), { recursive: true });
+  await fs.writeFile(getLibraryFilePath(), JSON.stringify(library, null, 2), 'utf-8');
 };
 
 function startBackend(): void {
@@ -149,6 +167,14 @@ ipcMain.handle('sessions:import', async () => {
   const content = await fs.readFile(result.filePaths[0], 'utf-8');
   const parsed = JSON.parse(content);
   return parsed;
+});
+
+ipcMain.handle('library:get', async () => {
+  return readLibrary();
+});
+
+ipcMain.handle('library:save', async (_event, library: unknown) => {
+  await writeLibrary(library);
 });
 
 // App lifecycle

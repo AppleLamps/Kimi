@@ -20,6 +20,10 @@ declare global {
                 export: (record: unknown) => Promise<string | null>;
                 import: () => Promise<unknown | null>;
             };
+            library?: {
+                get: () => Promise<unknown>;
+                save: (library: unknown) => Promise<void>;
+            };
         };
     }
 }

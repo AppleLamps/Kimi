@@ -173,6 +173,7 @@ export interface TaskRequest {
   task: string;
   workspacePath: string;
   modelConfig?: ModelConfig;
+  systemPrompt?: string;
 }
 
 export interface ApplyDiffRequest {
