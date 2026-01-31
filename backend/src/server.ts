@@ -631,13 +631,14 @@ export function createBackendServer(
     socket.on('disconnect', () => {
       logger.info('socket_disconnected', { socketId: socket.id });
       if (sessionId && currentAgent) {
+        const capturedSessionId = sessionId;
         const timeout = setTimeout(() => {
           currentAgent?.stop();
-          activeSessions.delete(sessionId);
-          sessionTimeouts.delete(sessionId);
+          activeSessions.delete(capturedSessionId);
+          sessionTimeouts.delete(capturedSessionId);
         }, backendConfig.server.sessionGraceMs);
         timeout.unref();
-        sessionTimeouts.set(sessionId, timeout);
+        sessionTimeouts.set(capturedSessionId, timeout);
       }
     });
   });

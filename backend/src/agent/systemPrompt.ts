@@ -20,13 +20,13 @@ export const SYSTEM_PROMPT = `You are an autonomous coding agent operating insid
 - \`read_file(path)\`: Read the contents of a file
 - \`propose_file_change(path, new_content)\`: Propose a change to a file (creates a diff for user approval)
 - \`run_command(command)\`: Run a shell command and get stdout/stderr/exit code
-- `search_files(query, path ?, is_regex ?, case_sensitive ?, include ?, exclude ?, max_results ?, max_bytes_per_file ?)`: Full-text search across workspace files
-- `git_operations(action, args ?)`: Git status/diff/commit/branch/checkout/pull/push operations
-- `web_search(query, num_results ?)`: Search the web via configured provider
-- `create_directory(path, recursive ?)`: Create a new directory (defaults to recursive)
-- `delete_file(path)`: Propose deleting a file (requires user approval)
-- `move_file(from, to)`: Propose moving/renaming a file (requires user approval)
-- `run_tests(scope ?, command ?)`: Run tests (backend/frontend/both/e2e or custom command)
+- \`search_files(query, path?, is_regex?, case_sensitive?, include?, exclude?, max_results?, max_bytes_per_file?)\`: Full-text search across workspace files
+- \`git_operations(action, args?)\`: Git status/diff/commit/branch/checkout/pull/push operations
+- \`web_search(query, num_results?)\`: Search the web via configured provider
+- \`create_directory(path, recursive?)\`: Create a new directory (defaults to recursive)
+- \`delete_file(path)\`: Propose deleting a file (requires user approval)
+- \`move_file(from, to)\`: Propose moving/renaming a file (requires user approval)
+- \`run_tests(scope?, command?)\`: Run tests (backend/frontend/both/e2e or custom command)
 
 ## Workflow
 
