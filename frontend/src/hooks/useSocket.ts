@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import type { AgentUpdate, DiffResult, GitOperationRequest, GitOperationResult, LogEntry, LogSeverity, ModelConfig, PersistedAgentState, PersistedLogEntry, ProgressData, SessionRecord, TokenUsage } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { frontendConfig } from '../config';
+import type { PinnedFile, ContextUsage } from '../types';
 
 const BACKEND_URL = frontendConfig.backendUrl;
 const DELTA_FLUSH_INTERVAL_MS = frontendConfig.socket.deltaFlushIntervalMs;
@@ -19,6 +20,8 @@ interface UseSocketReturn {
   logs: LogEntry[];
   pendingDiffs: DiffResult[];
   progress: ProgressData | null;
+  pinnedFiles: PinnedFile[];
+  contextUsage: ContextUsage | null;
   startTask: (task: string, workspacePath: string, modelConfig: ModelConfig) => void;
   resumeSession: (sessionId: string) => void;
   requestSessionState: () => void;
@@ -32,6 +35,8 @@ interface UseSocketReturn {
   clearLogs: () => void;
   gitPull: (request: GitOperationRequest) => void;
   gitPush: (request: GitOperationRequest) => void;
+  pinFile: (path: string) => void;
+  unpinFile: (path: string) => void;
 }
 
 interface GitStatus {
@@ -57,6 +62,8 @@ export function useSocket(): UseSocketReturn {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [pendingDiffs, setPendingDiffs] = useState<DiffResult[]>([]);
   const [progress, setProgress] = useState<ProgressData | null>(null);
+  const [pinnedFiles, setPinnedFiles] = useState<PinnedFile[]>([]);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
 
   const getSeverityForType = useCallback((type: LogEntry['type']): LogSeverity => {
     switch (type) {
@@ -344,6 +351,12 @@ export function useSocket(): UseSocketReturn {
           setProgress(data);
           break;
         }
+        case 'context_update': {
+          const data = update.data as { pinnedFiles: PinnedFile[]; contextUsage: ContextUsage };
+          setPinnedFiles(data.pinnedFiles);
+          setContextUsage(data.contextUsage);
+          break;
+        }
       }
 
       scheduleSessionStateRequest();
@@ -462,6 +475,18 @@ export function useSocket(): UseSocketReturn {
     }
   }, []);
 
+  const pinFile = useCallback((path: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('file:pin', { path });
+    }
+  }, []);
+
+  const unpinFile = useCallback((path: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('file:unpin', { path });
+    }
+  }, []);
+
   return {
     isConnected,
     isRunning,
@@ -474,6 +499,8 @@ export function useSocket(): UseSocketReturn {
     logs,
     pendingDiffs,
     progress,
+    pinnedFiles,
+    contextUsage,
     startTask,
     resumeSession,
     requestSessionState,
@@ -487,5 +514,7 @@ export function useSocket(): UseSocketReturn {
     clearLogs,
     gitPull,
     gitPush,
+    pinFile,
+    unpinFile,
   };
 }

@@ -19,7 +19,7 @@ export interface DiffComment {
 }
 
 export interface AgentUpdate {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress' | 'context_update';
   data: unknown;
 }
 
@@ -130,6 +130,26 @@ export interface GitOperationRequest {
 export interface GitOperationResult {
   action: 'pull' | 'push';
   result: unknown;
+}
+
+export interface PinnedFile {
+  path: string;
+  content: string;
+  addedAt: string;
+}
+
+export interface ContextUsage {
+  currentTokens: number;
+  maxTokens: number;
+  pinnedTokens: number;
+  availableTokens: number;
+  utilizationPercent: number;
+  needsPruning: boolean;
+}
+
+export interface ContextUpdateData {
+  pinnedFiles: PinnedFile[];
+  contextUsage: ContextUsage;
 }
 
 export interface SessionRecord {

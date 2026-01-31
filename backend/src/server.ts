@@ -598,6 +598,36 @@ export function createBackendServer(
       void runGitOperation('push', data);
     });
 
+    socket.on('file:pin', async (data: { path: string }) => {
+      try {
+        if (!currentAgent) {
+          socket.emit('error', { message: 'No active agent session' });
+          return;
+        }
+
+        await currentAgent.pinFile(data.path);
+        socket.emit('file:pinned', { path: data.path });
+      } catch (error) {
+        logger.error('file_pin_failed', { error, path: data.path });
+        socket.emit('error', { message: `Failed to pin file: ${(error as Error).message}` });
+      }
+    });
+
+    socket.on('file:unpin', (data: { path: string }) => {
+      try {
+        if (!currentAgent) {
+          socket.emit('error', { message: 'No active agent session' });
+          return;
+        }
+
+        currentAgent.unpinFile(data.path);
+        socket.emit('file:unpinned', { path: data.path });
+      } catch (error) {
+        logger.error('file_unpin_failed', { error, path: data.path });
+        socket.emit('error', { message: `Failed to unpin file: ${(error as Error).message}` });
+      }
+    });
+
     socket.on('disconnect', () => {
       logger.info('socket_disconnected', { socketId: socket.id });
       if (sessionId && currentAgent) {

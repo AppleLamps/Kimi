@@ -37,4 +37,10 @@ export const backendConfig = {
         baseDelayMs: 500,
         maxDelayMs: 5000,
     },
+    contextManagement: {
+        maxContextTokens: 100000,
+        targetContextTokens: 80000,
+        summarizationThreshold: 85,
+        preserveRecentMessages: 10,
+    },
 };
