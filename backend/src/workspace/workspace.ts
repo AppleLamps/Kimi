@@ -32,11 +32,28 @@ const DEFAULT_MAX_DEPTH = backendConfig.workspace.defaultMaxDepth;
 const DEFAULT_MAX_ENTRIES = backendConfig.workspace.defaultMaxEntries;
 const DEFAULT_EXCLUDES = backendConfig.workspace.defaultExcludes;
 const TREE_CACHE_TTL_MS = backendConfig.workspace.treeCacheTtlMs;
+const ALLOWED_ROOTS = backendConfig.workspace.allowedRoots ?? [];
+
+const isPathWithin = (targetPath: string, root: string): boolean => {
+  const normalizedRoot = path.resolve(root);
+  const normalizedTarget = path.resolve(targetPath);
+  if (normalizedTarget === normalizedRoot) return true;
+  const relative = path.relative(normalizedRoot, normalizedTarget);
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+};
 const workspaceTreeCache = new Map<string, { expiresAt: number; value: WorkspaceTreeResult }>();
 
 export async function validateWorkspace(workspacePath: string): Promise<boolean> {
   try {
-    const stats = await fs.stat(workspacePath);
+    const resolvedPath = path.resolve(workspacePath);
+    if (ALLOWED_ROOTS.length > 0) {
+      const allowed = ALLOWED_ROOTS.some((root) => isPathWithin(resolvedPath, root));
+      if (!allowed) {
+        return false;
+      }
+    }
+
+    const stats = await fs.stat(resolvedPath);
     return stats.isDirectory();
   } catch {
     return false;

@@ -19,7 +19,7 @@ export interface DiffComment {
 }
 
 export interface AgentUpdate {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress' | 'context_update';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'command_confirmation' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress' | 'context_update';
   data: unknown;
 }
 

@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { AgentLoop, UpdateCallback } from './agent/agentLoop.js';
 import { ToolExecutor } from './agent/tools.js';
 import { validateWorkspace, getWorkspaceInfo, getWorkspaceTree } from './workspace/workspace.js';
@@ -11,6 +12,7 @@ import {
   ValidationError,
   diffActionSchema,
   diffParamsSchema,
+  commandConfirmationSchema,
   formatValidationIssues,
   gitOperationSchema,
   parseWithSchema,
@@ -23,6 +25,7 @@ import {
   workspaceValidateSchema,
 } from './validation.js';
 import type { TaskRequest, AgentUpdate, ModelConfig, GitOperationRequest } from './types.js';
+import type { CommandConfirmationRequest } from './types.js';
 
 export interface BackendServerOptions {
   apiKey?: string;
@@ -74,6 +77,18 @@ export function createBackendServer(
   app.use(cors());
   app.use(express.json());
 
+  if (backendConfig.server.rateLimit.enabled) {
+    app.use(
+      '/api',
+      rateLimit({
+        windowMs: backendConfig.server.rateLimit.windowMs,
+        max: backendConfig.server.rateLimit.max,
+        standardHeaders: backendConfig.server.rateLimit.standardHeaders,
+        legacyHeaders: backendConfig.server.rateLimit.legacyHeaders,
+      })
+    );
+  }
+
   app.use((req, res, next) => {
     const startedAt = Date.now();
     res.on('finish', () => {
@@ -105,96 +120,104 @@ export function createBackendServer(
     throw error;
   };
 
-  app.post('/api/workspace/validate', async (req, res) => {
-    let payload: { path: string };
-    try {
-      payload = parseWithSchema(workspaceValidateSchema, req.body);
-    } catch (error) {
-      return sendValidationError(res, error);
+  const validateRequest = <T>(
+    schema: (data: unknown) => T,
+    getPayload: (req: express.Request) => unknown
+  ) =>
+    (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      try {
+        res.locals.payload = schema(getPayload(req));
+        next();
+      } catch (error) {
+        return sendValidationError(res, error);
+      }
+    };
+
+  app.post(
+    '/api/workspace/validate',
+    validateRequest((value) => parseWithSchema(workspaceValidateSchema, value), (req) => req.body),
+    async (req, res) => {
+      const payload = res.locals.payload as { path: string };
+      const isValid = await validateWorkspaceFn(payload.path);
+      if (!isValid) {
+        return res.status(400).json({ error: 'Invalid workspace path' });
+      }
+
+      const info = await getWorkspaceInfoFn(payload.path);
+      res.json(info);
     }
+  );
 
-    const isValid = await validateWorkspaceFn(payload.path);
-    if (!isValid) {
-      return res.status(400).json({ error: 'Invalid workspace path' });
-    }
-
-    const info = await getWorkspaceInfoFn(payload.path);
-    res.json(info);
-  });
-
-  app.get('/api/workspace/tree', async (req, res) => {
-    let payload: { path: string; depth?: number; maxEntries?: number };
-    try {
-      payload = parseWithSchema(workspaceTreeQuerySchema, {
+  app.get(
+    '/api/workspace/tree',
+    validateRequest(
+      (value) => parseWithSchema(workspaceTreeQuerySchema, value),
+      (req) => ({
         path: req.query.path,
         depth: req.query.depth,
         maxEntries: req.query.maxEntries,
+      })
+    ),
+    async (req, res) => {
+      const payload = res.locals.payload as { path: string; depth?: number; maxEntries?: number };
+      const isValid = await validateWorkspaceFn(payload.path);
+      if (!isValid) {
+        return res.status(400).json({ error: 'Invalid workspace path' });
+      }
+
+      const tree = await getWorkspaceTreeFn(payload.path, {
+        maxDepth: payload.depth,
+        maxEntries: payload.maxEntries,
       });
-    } catch (error) {
-      return sendValidationError(res, error);
+
+      res.json(tree);
     }
+  );
 
-    const isValid = await validateWorkspaceFn(payload.path);
-    if (!isValid) {
-      return res.status(400).json({ error: 'Invalid workspace path' });
+  app.get(
+    '/api/session/:sessionId/diffs',
+    validateRequest((value) => parseWithSchema(sessionParamsSchema, value), (req) => req.params),
+    (req, res) => {
+      const { sessionId } = res.locals.payload as { sessionId: string };
+      const agent = activeSessions.get(sessionId);
+
+      if (!agent) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+
+      const diffs = agent.getPendingDiffs();
+      res.json(diffs);
     }
+  );
 
-    const tree = await getWorkspaceTreeFn(payload.path, {
-      maxDepth: payload.depth,
-      maxEntries: payload.maxEntries,
-    });
+  app.get(
+    '/api/session/:sessionId/diff/:diffId',
+    validateRequest((value) => parseWithSchema(diffParamsSchema, value), (req) => req.params),
+    (req, res) => {
+      const { sessionId, diffId } = res.locals.payload as { sessionId: string; diffId: string };
+      const agent = activeSessions.get(sessionId);
 
-    res.json(tree);
-  });
+      if (!agent) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
 
-  app.get('/api/session/:sessionId/diffs', (req, res) => {
-    let params: { sessionId: string };
-    try {
-      params = parseWithSchema(sessionParamsSchema, req.params);
-    } catch (error) {
-      return sendValidationError(res, error);
+      const diff = agent.getPendingDiff(diffId);
+      if (!diff) {
+        return res.status(404).json({ error: 'Diff not found' });
+      }
+
+      res.json({
+        id: diff.id,
+        path: diff.path,
+        operation: diff.operation,
+        oldPath: diff.oldPath,
+        newPath: diff.newPath,
+        original: diff.original ?? '',
+        proposed: diff.proposed ?? '',
+        diff: diff.diff,
+      });
     }
-    const { sessionId } = params;
-    const agent = activeSessions.get(sessionId);
-
-    if (!agent) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-
-    const diffs = agent.getPendingDiffs();
-    res.json(diffs);
-  });
-
-  app.get('/api/session/:sessionId/diff/:diffId', (req, res) => {
-    let params: { sessionId: string; diffId: string };
-    try {
-      params = parseWithSchema(diffParamsSchema, req.params);
-    } catch (error) {
-      return sendValidationError(res, error);
-    }
-    const { sessionId, diffId } = params;
-    const agent = activeSessions.get(sessionId);
-
-    if (!agent) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-
-    const diff = agent.getPendingDiff(diffId);
-    if (!diff) {
-      return res.status(404).json({ error: 'Diff not found' });
-    }
-
-    res.json({
-      id: diff.id,
-      path: diff.path,
-      operation: diff.operation,
-      oldPath: diff.oldPath,
-      newPath: diff.newPath,
-      original: diff.original ?? '',
-      proposed: diff.proposed ?? '',
-      diff: diff.diff,
-    });
-  });
+  );
 
   io.on('connection', (socket) => {
     logger.info('socket_connected', { socketId: socket.id });
@@ -534,6 +557,56 @@ export function createBackendServer(
         socket.emit('agent:update', {
           type: 'info',
           data: { message: 'No pending diffs to reject.' },
+        });
+      }
+    });
+
+    socket.on('command:confirm', (data: CommandConfirmationRequest) => {
+      if (!currentAgent) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'No active session' },
+        });
+        return;
+      }
+
+      const payload = parseSocketPayload(
+        'command:confirm',
+        (value) => parseWithSchema(commandConfirmationSchema, value),
+        data
+      );
+      if (!payload) return;
+
+      const confirmed = currentAgent.confirmCommand(payload.commandId);
+      if (!confirmed) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'Command confirmation not found' },
+        });
+      }
+    });
+
+    socket.on('command:reject', (data: CommandConfirmationRequest) => {
+      if (!currentAgent) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'No active session' },
+        });
+        return;
+      }
+
+      const payload = parseSocketPayload(
+        'command:reject',
+        (value) => parseWithSchema(commandConfirmationSchema, value),
+        data
+      );
+      if (!payload) return;
+
+      const rejected = currentAgent.rejectCommand(payload.commandId);
+      if (!rejected) {
+        socket.emit('agent:update', {
+          type: 'error',
+          data: { message: 'Command confirmation not found' },
         });
       }
     });

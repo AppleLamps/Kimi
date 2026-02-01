@@ -309,6 +309,23 @@ export function useSocket(): UseSocketReturn {
           addLog('info', `Diff proposed for: ${diff.path}`);
           break;
         }
+        case 'command_confirmation': {
+          const data = update.data as { commandId: string; command: string };
+          const approved = window.confirm(
+            `Allow the agent to run this command?\n\n${data.command}`
+          );
+          if (socketRef.current) {
+            socketRef.current.emit(approved ? 'command:confirm' : 'command:reject', {
+              commandId: data.commandId,
+            });
+          }
+          addLog(
+            'info',
+            approved ? 'Command approved by user.' : 'Command rejected by user.',
+            data
+          );
+          break;
+        }
         case 'message': {
           const data = update.data as { content: string; usage?: TokenUsage; messageId?: string | null };
           if (data.messageId) {

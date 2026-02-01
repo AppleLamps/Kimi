@@ -109,6 +109,12 @@ export const diffActionSchema = z
     })
     .strict();
 
+export const commandConfirmationSchema = z
+    .object({
+        commandId: nonEmptyString,
+    })
+    .strict();
+
 export const gitOperationSchema = z
     .object({
         workspacePath: nonEmptyString,

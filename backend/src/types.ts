@@ -165,7 +165,7 @@ export interface AgentState {
 
 // WebSocket events
 export interface AgentUpdate {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress' | 'context_update';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'diff_proposed' | 'command_confirmation' | 'message' | 'message_delta' | 'complete' | 'error' | 'info' | 'progress' | 'context_update';
   data: unknown;
 }
 
@@ -178,6 +178,10 @@ export interface TaskRequest {
 
 export interface ApplyDiffRequest {
   diffId: string;
+}
+
+export interface CommandConfirmationRequest {
+  commandId: string;
 }
 
 export interface GitOperationRequest {

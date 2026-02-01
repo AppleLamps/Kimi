@@ -8,6 +8,7 @@ import fg from 'fast-glob';
 import { simpleGit } from 'simple-git';
 import { fetch } from 'undici';
 import { backendConfig } from '../config.js';
+import { logger } from '../logger.js';
 import type {
   ListFilesParams,
   ReadFileParams,
@@ -54,6 +55,11 @@ export class ToolExecutor {
     if (diff.operation === 'delete') {
       const filePath = this.resolvePath(diff.path);
       await fs.rm(filePath, { force: true });
+      logger.info('file_operation_applied', {
+        operation: 'delete',
+        path: diff.path,
+        workspacePath: this.workspacePath,
+      });
       return;
     }
 
@@ -65,6 +71,12 @@ export class ToolExecutor {
       const toPath = this.resolvePath(diff.newPath);
       await fs.mkdir(path.dirname(toPath), { recursive: true });
       await fs.rename(fromPath, toPath);
+      logger.info('file_operation_applied', {
+        operation: 'move',
+        oldPath: diff.oldPath,
+        newPath: diff.newPath,
+        workspacePath: this.workspacePath,
+      });
       return;
     }
 
@@ -75,6 +87,11 @@ export class ToolExecutor {
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, diff.proposed, 'utf-8');
+    logger.info('file_operation_applied', {
+      operation: diff.operation ?? 'modify',
+      path: diff.path,
+      workspacePath: this.workspacePath,
+    });
   }
 
   async listFiles(params: ListFilesParams): Promise<string[]> {
@@ -155,6 +172,11 @@ export class ToolExecutor {
     };
 
     this.pendingDiffs.set(diffResult.id, diffResult);
+    logger.info('file_operation_proposed', {
+      operation: diffResult.operation,
+      path: diffResult.path,
+      workspacePath: this.workspacePath,
+    });
     return diffResult;
   }
 
@@ -180,8 +202,11 @@ export class ToolExecutor {
     const blockedPatterns = [
       /rm\s+-rf\s+[\/~]/,
       /rm\s+-r\s+[\/~]/,
+      /rm\s+-rf\s+\*/,
       /rmdir\s+\/s\s+\/q/i,
       /rd\s+\/s\s+\/q/i,
+      /del\s+\/f\s+\/s\s+\/q/i,
+      /erase\s+\/s\s+\/q/i,
       />\s*\/dev\/sd/,
       /mkfs\./,
       /mkfs\s+/,
@@ -195,11 +220,22 @@ export class ToolExecutor {
       /reboot\b/i,
       /poweroff\b/i,
       /halt\b/i,
+      /bcdedit\b/i,
+      /reg\s+delete\b/i,
+      /sc\s+delete\b/i,
+      /net\s+user\b/i,
+      /net\s+localgroup\b/i,
+      /chown\b/i,
+      /chmod\s+-R\s+777/i,
+      /sudo\b/i,
       /kill\s+-9\s+1\b/,
       /curl\b[^\n|]+\|\s*(sh|bash|zsh)\b/i,
       /wget\b[^\n|]+\|\s*(sh|bash|zsh)\b/i,
+      /curl\b[^\n|]+\|\s*powershell\b/i,
+      /wget\b[^\n|]+\|\s*powershell\b/i,
       /Invoke-Expression\b/i,
       /\bIEX\b/i,
+      /Set-ExecutionPolicy\b/i,
       /Add-MpPreference\b/i,
       /Remove-MpPreference\b/i,
       /Set-MpPreference\b/i,
@@ -325,6 +361,11 @@ export class ToolExecutor {
     const targetPath = this.resolvePath(params.path);
     await fs.mkdir(targetPath, { recursive: params.recursive ?? true });
     this.clearListFilesCache();
+    logger.info('file_operation_applied', {
+      operation: 'create_directory',
+      path: params.path,
+      workspacePath: this.workspacePath,
+    });
     return { created: true, path: params.path };
   }
 
@@ -357,6 +398,11 @@ export class ToolExecutor {
     };
 
     this.pendingDiffs.set(diffResult.id, diffResult);
+    logger.info('file_operation_proposed', {
+      operation: 'delete',
+      path: diffResult.path,
+      workspacePath: this.workspacePath,
+    });
     return diffResult;
   }
 
@@ -392,6 +438,12 @@ export class ToolExecutor {
     };
 
     this.pendingDiffs.set(diffResult.id, diffResult);
+    logger.info('file_operation_proposed', {
+      operation: 'move',
+      oldPath: params.from,
+      newPath: params.to,
+      workspacePath: this.workspacePath,
+    });
     return diffResult;
   }
 

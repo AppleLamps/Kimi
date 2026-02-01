@@ -1,8 +1,25 @@
+import * as path from 'path';
+
+const parseCsv = (value?: string): string[] =>
+    value
+        ?.split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean) ?? [];
+
+const resolvePaths = (entries: string[]): string[] => entries.map((entry) => path.resolve(entry));
+
 export const backendConfig = {
     server: {
         defaultPort: 3001,
         corsOrigins: ['http://localhost:3000', 'http://localhost:5173'],
         sessionGraceMs: 2 * 60 * 1000,
+        rateLimit: {
+            enabled: process.env.RATE_LIMIT_ENABLED === 'true',
+            windowMs: 60 * 1000,
+            max: 120,
+            standardHeaders: true,
+            legacyHeaders: false,
+        },
     },
     agent: {
         maxIterations: 50,
@@ -18,11 +35,13 @@ export const backendConfig = {
         defaultMaxEntries: 5000,
         defaultExcludes: ['node_modules', '.git', 'dist', 'build', '.next', 'out'],
         treeCacheTtlMs: 30 * 1000,
+        allowedRoots: resolvePaths(parseCsv(process.env.WORKSPACE_ALLOWED_ROOTS)),
     },
     tools: {
         listFilesCacheTtlMs: 10 * 1000,
         commandTimeoutMs: 60 * 1000,
         commandMaxBufferBytes: 1024 * 1024,
+        requireCommandConfirmation: process.env.REQUIRE_COMMAND_CONFIRMATION === 'true',
         searchDefaults: {
             maxResults: 200,
             maxBytesPerFile: 200_000,

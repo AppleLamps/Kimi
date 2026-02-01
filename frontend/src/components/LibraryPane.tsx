@@ -87,8 +87,8 @@ const LibraryPane: React.FC<LibraryPaneProps> = ({
                     <button
                         onClick={() => setActiveTab('presets')}
                         className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'presets'
-                                ? 'bg-kimi-dark text-kimi-blue shadow-sm'
-                                : 'text-kimi-text-muted hover:text-kimi-text hover:bg-kimi-dark/50'
+                            ? 'bg-kimi-dark text-kimi-blue shadow-sm'
+                            : 'text-kimi-text-muted hover:text-kimi-text hover:bg-kimi-dark/50'
                             }`}
                     >
                         Presets
@@ -96,8 +96,8 @@ const LibraryPane: React.FC<LibraryPaneProps> = ({
                     <button
                         onClick={() => setActiveTab('templates')}
                         className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'templates'
-                                ? 'bg-kimi-dark text-kimi-blue shadow-sm'
-                                : 'text-kimi-text-muted hover:text-kimi-text hover:bg-kimi-dark/50'
+                            ? 'bg-kimi-dark text-kimi-blue shadow-sm'
+                            : 'text-kimi-text-muted hover:text-kimi-text hover:bg-kimi-dark/50'
                             }`}
                     >
                         Templates
@@ -105,8 +105,8 @@ const LibraryPane: React.FC<LibraryPaneProps> = ({
                     <button
                         onClick={() => setActiveTab('snippets')}
                         className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'snippets'
-                                ? 'bg-kimi-dark text-kimi-blue shadow-sm'
-                                : 'text-kimi-text-muted hover:text-kimi-text hover:bg-kimi-dark/50'
+                            ? 'bg-kimi-dark text-kimi-blue shadow-sm'
+                            : 'text-kimi-text-muted hover:text-kimi-text hover:bg-kimi-dark/50'
                             }`}
                     >
                         Snippets

@@ -42,6 +42,10 @@ export class AgentLoop {
   private state: AgentState;
   private onUpdate: UpdateCallback;
   private abortController: AbortController | null = null;
+  private pendingCommandConfirmations: Map<
+    string,
+    { command: string; resolve: (approved: boolean) => void }
+  > = new Map();
 
   constructor(
     apiKey: string,
@@ -164,6 +168,10 @@ export class AgentLoop {
   stop(): void {
     if (this.abortController) {
       this.abortController.abort();
+    }
+    for (const [commandId, pending] of this.pendingCommandConfirmations.entries()) {
+      pending.resolve(false);
+      this.pendingCommandConfirmations.delete(commandId);
     }
     this.state.isRunning = false;
   }
@@ -441,6 +449,22 @@ export class AgentLoop {
         }
 
         case 'run_command': {
+          if (backendConfig.tools.requireCommandConfirmation) {
+            const approved = await this.requestCommandConfirmation(
+              (validatedArgs as RunCommandParams).command
+            );
+            if (!approved) {
+              this.state.messages.push({
+                role: 'user',
+                content: '[System] The user rejected the command execution request.',
+              });
+              return 'Command execution cancelled by user.';
+            }
+            this.state.messages.push({
+              role: 'user',
+              content: '[System] The user approved the command execution request.',
+            });
+          }
           const result = await this.toolExecutor.runCommand(
             validatedArgs as RunCommandParams
           );
@@ -618,6 +642,35 @@ export class AgentLoop {
       content,
     });
     this.state.isComplete = false;
+  }
+
+  private requestCommandConfirmation(command: string): Promise<boolean> {
+    const commandId = uuidv4();
+
+    this.onUpdate({
+      type: 'command_confirmation',
+      data: { commandId, command },
+    });
+
+    return new Promise((resolve) => {
+      this.pendingCommandConfirmations.set(commandId, { command, resolve });
+    });
+  }
+
+  confirmCommand(commandId: string): boolean {
+    const pending = this.pendingCommandConfirmations.get(commandId);
+    if (!pending) return false;
+    pending.resolve(true);
+    this.pendingCommandConfirmations.delete(commandId);
+    return true;
+  }
+
+  rejectCommand(commandId: string): boolean {
+    const pending = this.pendingCommandConfirmations.get(commandId);
+    if (!pending) return false;
+    pending.resolve(false);
+    this.pendingCommandConfirmations.delete(commandId);
+    return true;
   }
 
   getPendingDiffs(): DiffResult[] {
