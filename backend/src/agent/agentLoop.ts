@@ -27,6 +27,7 @@ import type {
   DeleteFileParams,
   MoveFileParams,
   RunTestsParams,
+  TaskCompleteParams,
   ModelConfig,
   PinnedFile,
 } from '../types.js';
@@ -311,28 +312,12 @@ export class AgentLoop {
           data: { content: response.content, usage: response.usage, messageId },
         });
 
-        // Check if agent declares completion
-        const lowerContent = response.content.toLowerCase();
-        if (
-          lowerContent.includes('task is complete') ||
-          lowerContent.includes('task complete') ||
-          lowerContent.includes('i have completed') ||
-          lowerContent.includes('the changes have been') ||
-          (response.finishReason === 'stop' && !response.toolCalls)
-        ) {
-          // Give the agent a chance to confirm
-          if (!response.toolCalls) {
-            this.state.isComplete = true;
-            this.onUpdate({
-              type: 'complete',
-              data: { message: 'Agent completed the task' },
-            });
-            this.onUpdate({
-              type: 'progress',
-              data: { current: MAX_ITERATIONS, total: MAX_ITERATIONS, stage: 'complete' },
-            });
-            break;
-          }
+        // Check if agent stopped without tool calls (might be asking a question or done)
+        // Note: Explicit completion should be signaled via task_complete tool
+        if (response.finishReason === 'stop' && !response.toolCalls) {
+          // Agent responded without calling any tools - might be waiting for user input
+          // Don't auto-complete, let the agent continue or use task_complete explicitly
+          break;
         }
       }
 
@@ -526,6 +511,20 @@ export class AgentLoop {
             validatedArgs as RunTestsParams
           );
           return JSON.stringify(result, null, 2);
+        }
+
+        case 'task_complete': {
+          const params = validatedArgs as TaskCompleteParams;
+          this.state.isComplete = true;
+          this.onUpdate({
+            type: 'complete',
+            data: { message: params.summary },
+          });
+          this.onUpdate({
+            type: 'progress',
+            data: { current: MAX_ITERATIONS, total: MAX_ITERATIONS, stage: 'complete' },
+          });
+          return `Task marked as complete: ${params.summary}`;
         }
 
         default:

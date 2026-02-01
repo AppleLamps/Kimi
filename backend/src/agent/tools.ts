@@ -29,6 +29,116 @@ import type {
 
 const execAsync = promisify(exec);
 
+/**
+ * Command security: Allowlist-based approach instead of blocklist
+ * Only allows safe, commonly-needed development commands
+ */
+interface CommandAllowlistEntry {
+  pattern: RegExp;
+  description: string;
+  requiresConfirmation?: boolean;
+}
+
+const COMMAND_ALLOWLIST: CommandAllowlistEntry[] = [
+  // Package managers
+  { pattern: /^npm\s+(install|ci|run|test|build|start|lint|format|exec|ls|outdated|audit|pack|version|info|view|search|init)(\s|$)/, description: 'npm commands' },
+  { pattern: /^yarn\s+(install|add|remove|run|test|build|start|lint|format|workspace|why|info|outdated|audit|pack|version|init)(\s|$)/, description: 'yarn commands' },
+  { pattern: /^pnpm\s+(install|add|remove|run|test|build|start|lint|format|exec|list|outdated|audit|pack|version|init)(\s|$)/, description: 'pnpm commands' },
+  { pattern: /^npx\s+/, description: 'npx execution' },
+
+  // Build tools
+  { pattern: /^(tsc|typescript)\s*/, description: 'TypeScript compiler' },
+  { pattern: /^(webpack|vite|rollup|esbuild|parcel|turbo)\s*/, description: 'Build tools' },
+  { pattern: /^make(\s+\w+)*$/, description: 'Make targets' },
+
+  // Testing
+  { pattern: /^(jest|vitest|mocha|ava|tape|playwright|cypress)\s*/, description: 'Test runners' },
+  { pattern: /^pytest\s*/, description: 'Python testing' },
+  { pattern: /^go\s+test\s*/, description: 'Go testing' },
+  { pattern: /^cargo\s+test\s*/, description: 'Rust testing' },
+
+  // Linting and formatting
+  { pattern: /^(eslint|prettier|biome|stylelint|shellcheck|hadolint)\s*/, description: 'Linting tools' },
+  { pattern: /^(black|ruff|flake8|pylint|mypy|pyright)\s*/, description: 'Python linting' },
+  { pattern: /^(rustfmt|clippy|cargo\s+fmt|cargo\s+clippy)\s*/, description: 'Rust linting' },
+
+  // Version control (read-only and safe operations)
+  { pattern: /^git\s+(status|log|diff|branch|show|blame|ls-files|remote|fetch|stash\s+list)(\s|$)/, description: 'Git read operations' },
+  { pattern: /^git\s+(add|commit|stash\s+(push|pop|apply)|checkout|switch|restore|merge|rebase|cherry-pick|tag)(\s|$)/, description: 'Git write operations', requiresConfirmation: true },
+
+  // File operations (safe, read-only)
+  { pattern: /^(ls|dir|tree|find|locate|which|whereis|file|stat|wc|du|df)(\s|$)/, description: 'File listing' },
+  { pattern: /^(cat|head|tail|less|more|bat)(\s|$)/, description: 'File viewing' },
+  { pattern: /^(grep|rg|ag|ack|sed|awk)\s+/, description: 'Text search/processing' },
+
+  // Development utilities
+  { pattern: /^(echo|printf|env|printenv|date|whoami|pwd|hostname|uname)(\s|$)/, description: 'Info commands' },
+  { pattern: /^(curl|wget|http)\s+.*--output\s|^(curl|wget)\s+-[oO]\s/, description: 'Download files' },
+  { pattern: /^(node|deno|bun|python|python3|ruby|php|go\s+run|cargo\s+run)\s+/, description: 'Script execution' },
+
+  // Docker (read-only and safe operations)
+  { pattern: /^docker\s+(ps|images|logs|inspect|stats|top|port|version|info)(\s|$)/, description: 'Docker read operations' },
+  { pattern: /^docker\s+(build|run|exec|start|stop|restart|pull)(\s|$)/, description: 'Docker operations', requiresConfirmation: true },
+  { pattern: /^docker-compose\s+(ps|logs|config|version)(\s|$)/, description: 'Docker Compose read' },
+  { pattern: /^docker-compose\s+(up|down|build|start|stop|restart|pull)(\s|$)/, description: 'Docker Compose operations', requiresConfirmation: true },
+
+  // Database clients (read queries only by default)
+  { pattern: /^(psql|mysql|sqlite3|mongosh|redis-cli)\s+.*(-c|--command)\s+['"]?SELECT\s/i, description: 'Database SELECT queries' },
+
+  // Process management (safe)
+  { pattern: /^(ps|top|htop|pgrep|lsof)\s*/, description: 'Process viewing' },
+];
+
+/**
+ * Patterns that are always blocked regardless of allowlist
+ */
+const BLOCKED_PATTERNS: RegExp[] = [
+  // Destructive filesystem operations
+  /rm\s+(-[rf]+\s+)*[\/~]/,
+  /rmdir\s+\/s/i,
+  /del\s+\/[fsq]/i,
+
+  // Disk/partition operations
+  /mkfs[.\s]/,
+  /fdisk/,
+  /parted/,
+  /dd\s+if=/,
+  /diskpart/i,
+
+  // System control
+  /shutdown/i,
+  /reboot/i,
+  /poweroff/i,
+  /halt\b/i,
+  /init\s+[06]/,
+
+  // Privilege escalation
+  /sudo\s/,
+  /su\s+-/,
+  /doas\s/,
+
+  // Remote code execution patterns
+  /curl\b[^|]*\|\s*(sh|bash|zsh|python)/i,
+  /wget\b[^|]*\|\s*(sh|bash|zsh|python)/i,
+  /\beval\s*\(/,
+  /Invoke-Expression/i,
+  /\bIEX\b/,
+
+  // Fork bomb patterns
+  /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/,
+
+  // Windows-specific dangerous commands
+  /bcdedit/i,
+  /reg\s+(delete|add)\b/i,
+  /sc\s+(delete|create)\b/i,
+  /net\s+(user|localgroup)\b/i,
+  /cipher\s+\/w:/i,
+
+  // Permission changes that could break security
+  /chmod\s+(-R\s+)?[0-7]*[2367][0-7]*\s+\//,
+  /chown\s+-R\s+/,
+];
+
 export class ToolExecutor {
   private workspacePath: string;
   private pendingDiffs: Map<string, DiffResult> = new Map();
@@ -197,59 +307,63 @@ export class ToolExecutor {
     }
   }
 
-  async runCommand(params: RunCommandParams): Promise<CommandResult> {
-    // Basic command validation - block obviously dangerous commands
-    const blockedPatterns = [
-      /rm\s+-rf\s+[\/~]/,
-      /rm\s+-r\s+[\/~]/,
-      /rm\s+-rf\s+\*/,
-      /rmdir\s+\/s\s+\/q/i,
-      /rd\s+\/s\s+\/q/i,
-      /del\s+\/f\s+\/s\s+\/q/i,
-      /erase\s+\/s\s+\/q/i,
-      />\s*\/dev\/sd/,
-      /mkfs\./,
-      /mkfs\s+/,
-      /fdisk\s+/,
-      /parted\s+/,
-      /diskpart\b/i,
-      /format\s+[a-z]:/i,
-      /dd\s+if=/,
-      /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/,
-      /shutdown\b/i,
-      /reboot\b/i,
-      /poweroff\b/i,
-      /halt\b/i,
-      /bcdedit\b/i,
-      /reg\s+delete\b/i,
-      /sc\s+delete\b/i,
-      /net\s+user\b/i,
-      /net\s+localgroup\b/i,
-      /chown\b/i,
-      /chmod\s+-R\s+777/i,
-      /sudo\b/i,
-      /kill\s+-9\s+1\b/,
-      /curl\b[^\n|]+\|\s*(sh|bash|zsh)\b/i,
-      /wget\b[^\n|]+\|\s*(sh|bash|zsh)\b/i,
-      /curl\b[^\n|]+\|\s*powershell\b/i,
-      /wget\b[^\n|]+\|\s*powershell\b/i,
-      /Invoke-Expression\b/i,
-      /\bIEX\b/i,
-      /Set-ExecutionPolicy\b/i,
-      /Add-MpPreference\b/i,
-      /Remove-MpPreference\b/i,
-      /Set-MpPreference\b/i,
-      /cipher\s+\/w:/i,
-    ];
+  /**
+   * Validates a command against the allowlist and blocklist
+   * Returns { allowed: true, requiresConfirmation } or { allowed: false, reason }
+   */
+  validateCommand(command: string): { allowed: true; requiresConfirmation: boolean; matchedRule?: string } | { allowed: false; reason: string } {
+    const trimmedCommand = command.trim();
 
-    for (const pattern of blockedPatterns) {
-      if (pattern.test(params.command)) {
+    // First check blocklist - these are always rejected
+    for (const pattern of BLOCKED_PATTERNS) {
+      if (pattern.test(trimmedCommand)) {
+        logger.warn('command_blocked', { command: trimmedCommand, pattern: pattern.toString() });
         return {
-          stdout: '',
-          stderr: 'Command blocked for safety reasons',
-          exitCode: 1,
+          allowed: false,
+          reason: 'Command matches a blocked pattern for safety reasons',
         };
       }
+    }
+
+    // Check if sandboxing is enabled (default: true)
+    const sandboxEnabled = backendConfig.tools.commandSandbox?.enabled ?? true;
+
+    if (!sandboxEnabled) {
+      // If sandbox is disabled, allow all commands not in blocklist
+      return { allowed: true, requiresConfirmation: false };
+    }
+
+    // Check allowlist
+    for (const entry of COMMAND_ALLOWLIST) {
+      if (entry.pattern.test(trimmedCommand)) {
+        logger.info('command_allowed', { command: trimmedCommand, rule: entry.description });
+        return {
+          allowed: true,
+          requiresConfirmation: entry.requiresConfirmation ?? false,
+          matchedRule: entry.description,
+        };
+      }
+    }
+
+    // Command not in allowlist
+    logger.warn('command_not_allowed', { command: trimmedCommand });
+    return {
+      allowed: false,
+      reason: `Command not in allowlist. For security, only common development commands are allowed. ` +
+        `If you need to run this command, ask the user to execute it manually or disable command sandboxing.`,
+    };
+  }
+
+  async runCommand(params: RunCommandParams): Promise<CommandResult> {
+    // Validate command against allowlist/blocklist
+    const validation = this.validateCommand(params.command);
+
+    if (!validation.allowed) {
+      return {
+        stdout: '',
+        stderr: validation.reason,
+        exitCode: 1,
+      };
     }
 
     try {
@@ -522,7 +636,7 @@ export class ToolExecutor {
               line: i + 1,
               column: index + 1,
               lineText,
-              match: lineText.substr(index, params.query.length),
+              match: lineText.substring(index, index + params.query.length),
             });
             if (matches.length >= maxResults) break;
             index = haystack.indexOf(query, index + query.length);

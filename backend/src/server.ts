@@ -8,6 +8,7 @@ import { ToolExecutor } from './agent/tools.js';
 import { validateWorkspace, getWorkspaceInfo, getWorkspaceTree } from './workspace/workspace.js';
 import { backendConfig } from './config.js';
 import { logger } from './logger.js';
+import { SocketRateLimiter } from './utils/socketRateLimiter.js';
 import {
   ValidationError,
   diffActionSchema,
@@ -105,6 +106,71 @@ export function createBackendServer(
 
   const activeSessions = new Map<string, AgentLoop>();
   const sessionTimeouts = new Map<string, NodeJS.Timeout>();
+
+  // Socket rate limiter: 60 events per minute per connection
+  const socketRateLimiter = new SocketRateLimiter({
+    maxEvents: backendConfig.server.socketRateLimit?.maxEvents ?? 60,
+    windowMs: backendConfig.server.socketRateLimit?.windowMs ?? 60 * 1000,
+    bypassEvents: ['disconnect', 'error', 'agent:update'],
+  });
+
+  // Cleanup expired rate limit entries every 5 minutes
+  const rateLimitCleanupInterval = setInterval(() => {
+    socketRateLimiter.cleanup();
+  }, 5 * 60 * 1000);
+  rateLimitCleanupInterval.unref();
+
+  // Session tracking for cleanup
+  const sessionLastActivity = new Map<string, number>();
+
+  /**
+   * Periodic cleanup of stale sessions
+   * Removes sessions that have been inactive for longer than the grace period
+   */
+  const sessionCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    const staleThreshold = backendConfig.server.sessionGraceMs * 2; // 2x grace period for stale
+
+    let cleanedCount = 0;
+    for (const [sessId, lastActivity] of sessionLastActivity.entries()) {
+      if (now - lastActivity > staleThreshold) {
+        const agent = activeSessions.get(sessId);
+        if (agent) {
+          agent.stop();
+        }
+        activeSessions.delete(sessId);
+        sessionLastActivity.delete(sessId);
+        const timeout = sessionTimeouts.get(sessId);
+        if (timeout) {
+          clearTimeout(timeout);
+          sessionTimeouts.delete(sessId);
+        }
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.info('session_cleanup', {
+        cleaned: cleanedCount,
+        remaining: activeSessions.size,
+      });
+    }
+  }, backendConfig.server.sessionCleanupIntervalMs);
+  sessionCleanupInterval.unref();
+
+  /**
+   * Check if we can accept a new session
+   */
+  const canAcceptNewSession = (): boolean => {
+    return activeSessions.size < backendConfig.server.maxSessions;
+  };
+
+  /**
+   * Update session activity timestamp
+   */
+  const updateSessionActivity = (sessId: string): void => {
+    sessionLastActivity.set(sessId, Date.now());
+  };
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', hasApiKey: !!apiKey });
@@ -236,6 +302,31 @@ export function createBackendServer(
       });
     };
 
+    /**
+     * Check rate limit before processing an event
+     * Returns true if allowed, false if rate limited
+     */
+    const checkRateLimit = (eventName: string): boolean => {
+      const result = socketRateLimiter.check(socket.id, eventName);
+      if (!result.allowed) {
+        logger.warn('socket_rate_limited', {
+          socketId: socket.id,
+          event: eventName,
+          retryAfter: result.retryAfter,
+        });
+        socket.emit('agent:update', {
+          type: 'error',
+          data: {
+            message: `Rate limit exceeded. Please wait ${result.retryAfter} seconds before retrying.`,
+            code: 'RATE_LIMITED',
+            retryAfter: result.retryAfter,
+          },
+        });
+        return false;
+      }
+      return true;
+    };
+
     const parseSocketPayload = <T>(
       event: string,
       schema: (data: unknown) => T,
@@ -291,6 +382,7 @@ export function createBackendServer(
       currentAgent = existingAgent;
       sessionId = requestedId;
       currentAgent.setUpdateCallback(onUpdate);
+      updateSessionActivity(requestedId);
 
       const timeout = sessionTimeouts.get(requestedId);
       if (timeout) {
@@ -341,6 +433,8 @@ export function createBackendServer(
     });
 
     socket.on('task:start', async (data: TaskRequest) => {
+      if (!checkRateLimit('task:start')) return;
+
       if (!apiKey) {
         socket.emit('agent:update', {
           type: 'error',
@@ -367,6 +461,22 @@ export function createBackendServer(
         return;
       }
 
+      // Check session limit (allow if current socket already has a session)
+      if (!sessionId && !canAcceptNewSession()) {
+        logger.warn('session_limit_reached', {
+          currentSessions: activeSessions.size,
+          maxSessions: backendConfig.server.maxSessions,
+        });
+        socket.emit('agent:update', {
+          type: 'error',
+          data: {
+            message: `Server is at maximum capacity (${backendConfig.server.maxSessions} sessions). Please try again later.`,
+            code: 'SESSION_LIMIT_REACHED',
+          },
+        });
+        return;
+      }
+
       if (currentAgent) {
         currentAgent.stop();
       }
@@ -388,6 +498,7 @@ export function createBackendServer(
       );
       sessionId = currentAgent.getState().taskId;
       activeSessions.set(sessionId, currentAgent);
+      updateSessionActivity(sessionId);
 
       const timeout = sessionTimeouts.get(sessionId);
       if (timeout) {
@@ -419,6 +530,8 @@ export function createBackendServer(
     });
 
     socket.on('task:continue', async (data: { message: string }) => {
+      if (!checkRateLimit('task:continue')) return;
+
       if (!currentAgent) {
         socket.emit('agent:update', {
           type: 'error',
@@ -434,6 +547,7 @@ export function createBackendServer(
       );
       if (!payload) return;
 
+      if (sessionId) updateSessionActivity(sessionId);
       currentAgent.addUserMessage(payload.message);
       try {
         await currentAgent.start();
@@ -446,6 +560,8 @@ export function createBackendServer(
     });
 
     socket.on('diff:apply', async (data: { diffId: string }) => {
+      if (!checkRateLimit('diff:apply')) return;
+
       if (!currentAgent) {
         socket.emit('agent:update', {
           type: 'error',
@@ -510,6 +626,8 @@ export function createBackendServer(
     });
 
     socket.on('diff:apply_all', async () => {
+      if (!checkRateLimit('diff:apply_all')) return;
+
       if (!currentAgent) {
         socket.emit('agent:update', {
           type: 'error',
@@ -711,6 +829,10 @@ export function createBackendServer(
 
     socket.on('disconnect', () => {
       logger.info('socket_disconnected', { socketId: socket.id });
+
+      // Clean up rate limiter entry for this socket
+      socketRateLimiter.remove(socket.id);
+
       if (sessionId && currentAgent) {
         const capturedSessionId = sessionId;
         const timeout = setTimeout(() => {
@@ -742,10 +864,15 @@ export function createBackendServer(
 
   const stop = () =>
     new Promise<void>((resolve, reject) => {
+      // Clear cleanup intervals
+      clearInterval(rateLimitCleanupInterval);
+      clearInterval(sessionCleanupInterval);
+
       for (const timeout of sessionTimeouts.values()) {
         clearTimeout(timeout);
       }
       sessionTimeouts.clear();
+      sessionLastActivity.clear();
 
       if (!httpServer.listening) {
         resolve();

@@ -20,6 +20,13 @@ export const backendConfig = {
             standardHeaders: true,
             legacyHeaders: false,
         },
+        socketRateLimit: {
+            enabled: process.env.SOCKET_RATE_LIMIT_ENABLED !== 'false', // Default: true
+            maxEvents: Number(process.env.SOCKET_RATE_LIMIT_MAX) || 60,
+            windowMs: Number(process.env.SOCKET_RATE_LIMIT_WINDOW_MS) || 60 * 1000,
+        },
+        maxSessions: Number(process.env.MAX_SESSIONS) || 100,
+        sessionCleanupIntervalMs: 5 * 60 * 1000, // 5 minutes
     },
     agent: {
         maxIterations: 50,
@@ -42,6 +49,9 @@ export const backendConfig = {
         commandTimeoutMs: 60 * 1000,
         commandMaxBufferBytes: 1024 * 1024,
         requireCommandConfirmation: process.env.REQUIRE_COMMAND_CONFIRMATION === 'true',
+        commandSandbox: {
+            enabled: process.env.COMMAND_SANDBOX_ENABLED !== 'false', // Default: true
+        },
         searchDefaults: {
             maxResults: 200,
             maxBytesPerFile: 200_000,

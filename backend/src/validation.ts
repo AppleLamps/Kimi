@@ -217,6 +217,12 @@ export const runTestsSchema = z
     })
     .strict();
 
+export const taskCompleteSchema = z
+    .object({
+        summary: nonEmptyString,
+    })
+    .strict();
+
 export const toolInputSchemas: Record<string, z.ZodTypeAny> = {
     list_files: listFilesSchema,
     read_file: readFileSchema,
@@ -230,4 +236,5 @@ export const toolInputSchemas: Record<string, z.ZodTypeAny> = {
     delete_file: deleteFileSchema,
     move_file: moveFileSchema,
     run_tests: runTestsSchema,
+    task_complete: taskCompleteSchema,
 };

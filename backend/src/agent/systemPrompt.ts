@@ -27,6 +27,7 @@ export const SYSTEM_PROMPT = `You are an autonomous coding agent operating insid
 - \`delete_file(path)\`: Propose deleting a file (requires user approval)
 - \`move_file(from, to)\`: Propose moving/renaming a file (requires user approval)
 - \`run_tests(scope?, command?)\`: Run tests (backend/frontend/both/e2e or custom command)
+- \`task_complete(summary)\`: **IMPORTANT**: Call this tool when the task is complete to signal you are done
 
 ## Workflow
 
@@ -35,7 +36,7 @@ For each task:
 2. **Plan**: Determine what changes are needed
 3. **Act**: Use tools to propose changes or run commands
 4. **Reflect**: Check results and decide if more steps are needed
-5. **Complete**: When done, clearly state the task is complete
+5. **Complete**: When done, call the \`task_complete\` tool with a summary of what was accomplished
 
 ## Important Notes
 
@@ -265,6 +266,23 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           command: { type: 'string', description: 'Custom command to run tests' },
         },
         required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'task_complete',
+      description: 'Signal that the task has been completed. Call this tool when you have finished all the required work. Provide a brief summary of what was accomplished.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'A brief summary of what was accomplished',
+          },
+        },
+        required: ['summary'],
       },
     },
   },

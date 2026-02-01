@@ -102,6 +102,10 @@ export interface RunTestsParams {
   command?: string;
 }
 
+export interface TaskCompleteParams {
+  summary: string;
+}
+
 export interface CommandResult {
   stdout: string;
   stderr: string;
